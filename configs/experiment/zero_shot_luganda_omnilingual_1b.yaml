@@ -1,0 +1,10 @@
+stage: zero_shot
+data_config: configs/data/luganda.yaml
+model_config: configs/zero_shot/omnilingual_1b.yaml
+output_dir: /data/user_data/jgibson2/waxal/outputs/zero_shot_luganda_omnilingual_1b
+evaluation_batch_size: 1
+seed: 42
+fp16: true
+use_wandb: false
+decoding_strategy: greedy
+language_tag: lug_Latn

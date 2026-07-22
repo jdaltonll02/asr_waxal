@@ -1,0 +1,10 @@
+stage: zero_shot
+data_config: configs/data/luganda.yaml
+model_config: configs/zero_shot/whisper_large_v3.yaml
+output_dir: /data/user_data/jgibson2/waxal/outputs/zero_shot_luganda_whisper_large_v3
+evaluation_batch_size: 4
+seed: 42
+fp16: true
+use_wandb: false
+decoding_strategy: greedy
+supports_language: false

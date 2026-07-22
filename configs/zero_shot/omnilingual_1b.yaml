@@ -1,0 +1,5 @@
+family: omnilingual
+# ASSUMPTION: the paper's CTC-described Omnilingual-1B maps to this model card.
+model_card: omniASR_CTC_1B
+checkpoint: facebook/omniASR-CTC-1B
+decoding_strategy: greedy
