@@ -1,10 +1,16 @@
 family: mms_300m
 checkpoint: facebook/mms-300m
-freeze_encoder: true # ASSUMPTION: freeze all pretrained wav2vec2 backbone layers.
+freeze_encoder: true # freezes only the CNN feature extractor (see src/models/mms_wrapper.py);
+  # freezing the full backbone (feature_projection + transformer encoder too)
+  # left the from-scratch CTC head with no adaptable signal and it collapsed
+  # to predicting one near-constant output regardless of input audio.
 effective_batch_size: 32
 per_device_batch_size: 8 # ASSUMPTION: 8 x accumulation 4; adjust in YAML if required.
 gradient_accumulation_steps: 4
-learning_rate: 1.0e-4
+learning_rate: 1.0e-4 # reverted from a 5.0e-4 smoke test: raising the LR alone
+  # did not fix the collapse above (only marginally lowered the loss floor);
+  # now that feature_projection + the transformer encoder are trainable too,
+  # 1e-4 (matching the paper's uniform rate across architectures) is safer.
 lr_schedule: polynomial_decay
 warmup_steps: 500
 max_epochs: 30

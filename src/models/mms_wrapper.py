@@ -26,7 +26,14 @@ def load_mms_300m(model_config: dict, train_dataset, text_column: str, output_di
                                             ignore_mismatched_sizes=True, pad_token_id=tokenizer.pad_token_id,
                                             ctc_loss_reduction="mean")
     if model_config["freeze_encoder"]:
-        for parameter in model.wav2vec2.parameters():
+        # Freeze only the CNN feature extractor (~4.2M of ~315M wav2vec2
+        # params), matching the standard wav2vec2 CTC fine-tuning recipe.
+        # Freezing the full backbone (feature_projection + transformer
+        # encoder too) left the from-scratch CTC head with no adaptable
+        # signal to learn from: it collapsed to predicting one near-constant
+        # output regardless of input audio, at both 1e-4 and 5e-4 learning
+        # rates (see finetune_*_mms_300m runs prior to this fix).
+        for parameter in model.wav2vec2.feature_extractor.parameters():
             parameter.requires_grad = False
     return model, processor
 

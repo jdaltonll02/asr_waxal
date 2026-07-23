@@ -83,10 +83,16 @@ for "what actually ran," independent of any later edits to the YAML files themse
   transcripts, writes it as `vocab.json`, and a `Wav2Vec2CTCTokenizer` /
   `Wav2Vec2ForCTC` pair is constructed around it (`ignore_mismatched_sizes=True` since
   the pretrained checkpoint has no classification head to match sizes with). If
-  `freeze_encoder` is set, every `model.wav2vec2.*` parameter has `requires_grad`
-  turned off, so training only touches the newly-initialized CTC head — this is why
-  the paper describes MMS-300M's fine-tuned performance as "a direct measure of what
-  distilling on WAXAL alone through full supervision can induce."
+  `freeze_encoder` is set, only `model.wav2vec2.feature_extractor.*` (the CNN
+  front-end, ~4.2M of ~315M backbone params) has `requires_grad` turned off —
+  `feature_projection`, the transformer encoder, and the newly-initialized CTC head
+  all train. This matches the standard wav2vec2 CTC fine-tuning recipe. An earlier
+  version of this freezing logic froze the *entire* backbone instead, leaving the
+  from-scratch head with no adaptable signal at all: it collapsed to predicting one
+  near-constant character/token regardless of input audio (confirmed by direct
+  hidden-state/logit inspection — a genuine training bug, not a legitimate "domain
+  specialization" result). Raising the learning rate alone did not fix it; only
+  unfreezing `feature_projection`/the encoder did.
 - **`mms_wrapper.load_mms_1b`** — the zero-shot counterpart. `facebook/mms-1b-all`
   ships with per-language adapters; `set_target_lang` + `load_adapter` switch the
   frozen backbone to the target language's existing (not fine-tuned) head.
@@ -145,11 +151,18 @@ were reference words at all.
 `submit_all.sh` submits every `configs/experiment/*.yaml` via the matching sbatch
 template (`train` → `template_train.slurm`, `zero_shot` → `template_zero_shot_eval.slurm`,
 `cross_domain` → `template_cross_domain_eval.slurm`). It submits in two phases —
-all `finetune_*` configs first, capturing each one's Slurm job ID — because
-`cross_domain_*` jobs evaluate a checkpoint that only exists once the matching
-`finetune_*` job has finished; each cross-domain job is submitted with
-`--dependency=afterok:<that job id>` so Slurm itself holds it until the checkpoint is
-ready, rather than racing the two stages against each other.
+all `finetune_*` configs first, capturing each one's Slurm job ID — because both
+`evaluate.py` and `cross_domain_eval.py` need a checkpoint that only exists once the
+matching `finetune_*` job has finished. `evaluate.py` has no dedicated
+`evaluate_*.yaml` (it reuses the `finetune_*.yaml` config directly and just adds
+`--checkpoint`), so it's submitted from a separate loop over the same
+`finetune_*.yaml` files via `template_evaluate.slurm`, rather than through the
+stage-keyed dispatch the other three stages use. Both `evaluate` and
+`cross_domain` jobs are submitted with `--dependency=afterok:<finetune job id>` so
+Slurm itself holds them until the checkpoint is ready, rather than racing stages
+against each other — the pipeline hit exactly this race early in this
+reproduction (cross-domain jobs failing because they started before any checkpoint
+existed) before the dependency wiring was added.
 
 ### Storage layout
 
