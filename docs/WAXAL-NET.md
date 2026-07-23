@@ -90,15 +90,21 @@ noted):
 |---|---|---|---|
 | Whisper Tiny | 39M | encoder-decoder, autoregressive | ~151 MB |
 | Whisper Small | 244M | encoder-decoder, autoregressive | ~967 MB |
-| MMS-300M | 300M | wav2vec2 + CTC, frozen encoder | ~1.2 GB |
+| MMS-300M | 300M | wav2vec2 + CTC, feature extractor frozen | ~1.2 GB |
 
 MMS-300M is fine-tuned differently from the two Whisper variants: its base
 checkpoint has no text-generation head at all, so a character-level CTC vocabulary
 is built fresh from the WAXAL training transcripts (see `Architecture.md` /
-`build_vocab`), the pretrained wav2vec2 encoder is frozen, and only the new CTC head
-is trained. This makes MMS-300M's fine-tuned result "a direct measure of what
-distilling on WAXAL alone through full supervision can induce" — there is no prior
-text-generation capability to fall back on.
+`build_vocab`), and only the pretrained wav2vec2 CNN feature extractor (~4.2M of
+~315M backbone params) is frozen — `feature_projection`, the transformer encoder,
+and the new CTC head all train. (An earlier version of this reproduction froze the
+*entire* backbone, matching a naive reading of "distilling on WAXAL alone through
+full supervision"; that left the from-scratch head with no adaptable signal and it
+collapsed to predicting a near-constant output regardless of input audio — a
+training bug, not a real result. See `Architecture.md` for how it was diagnosed and
+fixed.) This still makes MMS-300M's fine-tuned result a meaningful measure of what
+training on WAXAL alone can induce, since there is no prior text-generation
+capability to fall back on — it just isn't a *linear-probe-only* measure.
 
 ## Training setup
 
@@ -110,7 +116,7 @@ fair (`configs/models/*.yaml`):
 - Up to 30 epochs, early stopping with patience 3 on validation loss
 - Whisper: full fine-tuning (all weights updated), greedy decoding, repetition
   penalty disabled
-- MMS-300M: frozen encoder, CTC greedy decoding
+- MMS-300M: feature extractor frozen, CTC greedy decoding
 
 ## Evaluation
 
@@ -174,9 +180,11 @@ Documented in `README.md` and preserved here for context:
 
 1. "Omnilingual-1B" maps to the `facebook/omniASR-CTC-1B` checkpoint / `omniASR_CTC_1B`
    model card, since the paper doesn't pin an exact Hub identifier.
-2. MMS-300M freezes the complete pretrained wav2vec2 backbone and learns a fresh CTC
-   head/vocabulary from filtered training transcriptions (the paper describes this
-   qualitatively; this repo's exact freezing scope is an implementation choice).
+2. MMS-300M freezes only the pretrained wav2vec2 CNN feature extractor and learns a
+   fresh CTC head/vocabulary from filtered training transcriptions (the paper
+   describes this qualitatively; this repo's exact freezing scope is an
+   implementation choice — freezing the full backbone was tried first and produced
+   a collapsed, non-functional model; see `Architecture.md`).
 3. Both cleaning filters run independently on train, validation, and test — the
    paper doesn't specify per-split filtering behavior explicitly.
 4. Early stopping monitors validation loss (the paper specifies patience=3 but not

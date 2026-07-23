@@ -53,16 +53,22 @@ Review commands before submission:
 bash slurm/submit_all.sh --dry-run
 ```
 
-Templates request one GPU; adjust time, memory, CPUs, and your Babel environment
-activation at the marked locations. Do not set a partition until `sinfo` confirms
-the appropriate Babel partition. For MMS-300M use an A100/A800 80-GB node; use a
-40-GB-equivalent node for Whisper Tiny/Small.
+Templates request one GPU on the `general` partition and activate this repo's venv;
+adjust time/memory/CPUs if needed. `submit_all.sh` submits `train` jobs first, then
+`evaluate` and `cross_domain` jobs with `--dependency=afterok:<train job id>` (both
+need that run's checkpoint), and `zero_shot` jobs (no dependency). `evaluate.py` has
+no dedicated experiment YAML — it reuses each `finetune_*.yaml` directly via
+`template_evaluate.slurm`.
 
 ## Assumptions retained in code
 
 1. Omnilingual-1B maps to `facebook/omniASR-CTC-1B` / `omniASR_CTC_1B`.
-2. MMS-300M freezes the complete pretrained wav2vec2 backbone and learns a fresh
-   CTC head/vocabulary from filtered training transcriptions.
+2. MMS-300M freezes only the pretrained wav2vec2 CNN feature extractor (~4.2M of
+   ~315M backbone params) and learns a fresh CTC head/vocabulary from filtered
+   training transcriptions. Freezing the full backbone (feature_projection and the
+   transformer encoder too) was tried first and left the from-scratch head with no
+   adaptable signal — it collapsed to predicting one near-constant output
+   regardless of input audio; a higher learning rate alone did not fix this.
 3. Both filtering rules run independently on train, validation, and test.
 4. Early stopping minimizes validation loss (the paper gives patience, not a
    monitored metric).
