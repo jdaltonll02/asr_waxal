@@ -4,6 +4,8 @@ from dataclasses import dataclass
 
 import torch
 
+from src.utils.metrics import normalize_text
+
 
 def audio_array(example: dict, audio_column: str):
     return example[audio_column]["array"]
@@ -42,6 +44,6 @@ class CTCCollator:
         # as_target_processor() is deprecated in transformers>=4.5x and its
         # merged-kwargs __call__ raises "got multiple values for keyword
         # argument 'padding'" here; call the tokenizer directly instead.
-        labels = self.processor.tokenizer([item[self.text_column] for item in features], return_tensors="pt", padding=True).input_ids
+        labels = self.processor.tokenizer([normalize_text(item[self.text_column]) for item in features], return_tensors="pt", padding=True).input_ids
         labels[labels == self.processor.tokenizer.pad_token_id] = -100
         return {"input_values": inputs.input_values, "attention_mask": inputs.attention_mask, "labels": labels}

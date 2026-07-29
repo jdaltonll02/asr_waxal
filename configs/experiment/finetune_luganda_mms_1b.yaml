@@ -1,0 +1,9 @@
+stage: train
+data_config: configs/data/luganda.yaml
+model_config: configs/models/mms_1b.yaml
+output_dir: /data/hf_cache/jgibson2/waxal/outputs/finetune_luganda_mms_1b
+checkpoint_dir: /data/hf_cache/jgibson2/waxal/checkpoints/finetune_luganda_mms_1b
+evaluation_batch_size: 4
+fp16: true
+use_wandb: false
+decoding_strategy: greedy

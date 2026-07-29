@@ -166,21 +166,25 @@ existed) before the dependency wiring was added.
 
 ### Storage layout
 
-Two independent roots are used, split by artifact size:
+Everything lives under one shared cluster mount, `/data/hf_cache/jgibson2/waxal/`:
 
-- `/data/user_data/jgibson2/waxal/outputs/<run_name>/` — `resolved_config.yaml`,
-  `run.log`, `data_filter_stats.json`, `metrics.json`. All KB-scale.
-- `/data/hf_cache/jgibson2/waxal/` — the Hugging Face model/dataset cache
-  (`HF_HOME`, set by the Slurm templates) and `checkpoints/<run_name>/best_model`
-  (GB-scale fine-tuned weights, referenced by `checkpoint_dir` in each `finetune_*`
-  experiment config and passed via `--checkpoint` to `evaluate.py`/
-  `cross_domain_eval.py`).
+- `outputs/<run_name>/` — `resolved_config.yaml`, `run.log`, `data_filter_stats.json`,
+  `metrics.json` (`output_dir` in every experiment config). All KB-scale.
+- `checkpoints/<run_name>/best_model` — GB-scale fine-tuned weights
+  (`checkpoint_dir` in each `finetune_*` experiment config, passed via
+  `--checkpoint` to `evaluate.py`/`cross_domain_eval.py`).
+- The Hugging Face model/dataset cache itself (`HF_HOME`, set by the Slurm
+  templates).
 
-This split exists because the former lives on a small per-user quota shared across
-many unrelated projects, while the latter is a much larger cluster-wide cache mount —
-routing multi-GB downloads and checkpoints there, and keeping only small
-human-readable artifacts on the personal quota, is what keeps the pipeline runnable
-at all once real WAXAL-scale audio and model weights are involved.
+This wasn't the original layout: `output_dir` first lived on
+`/data/user_data/jgibson2`, a much smaller per-user quota shared across many
+unrelated projects on the account. It was moved here in two steps as that quota
+filled up over the course of this reproduction — first just the heavy cache and
+checkpoints (when the quota hit 100% with a sliver of room left), then `output_dir`
+too (when the quota reached a literal 0 bytes free and even KB-scale
+`resolved_config.yaml` writes started failing). Routing everything through a
+cluster-wide cache mount instead of a small personal quota is what keeps the
+pipeline runnable regardless of what else is competing for that quota.
 
 ## Results reporting
 

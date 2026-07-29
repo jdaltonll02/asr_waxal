@@ -12,3 +12,8 @@ text_column: transcription
 cache_dir: /data/hf_cache/jgibson2/waxal/cache
 num_proc: 8
 fleurs_config: lg_ug
+speaker_holdout_validation: true # replace WAXAL's official (speaker-leaky:
+  # 66-89% overlap with train, verified empirically) validation split with a
+  # speaker-disjoint holdout carved from train, so early stopping reflects
+  # genuine speaker generalization rather than voice memorization.
+speaker_holdout_fraction: 0.15

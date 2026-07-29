@@ -1,0 +1,8 @@
+stage: evaluate
+data_config: configs/data/luganda.yaml
+model_config: configs/models/whisper_small.yaml
+output_dir: /data/user_data/jgibson2/waxal/outputs/evaluate_multilingual_whisper_small_luganda
+evaluation_batch_size: 8
+fp16: true
+use_wandb: false
+decoding_strategy: greedy

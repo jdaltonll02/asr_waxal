@@ -1,0 +1,9 @@
+stage: train
+data_config: configs/data/shona.yaml
+model_config: configs/models/whisper_large_v2.yaml
+output_dir: /data/hf_cache/jgibson2/waxal/outputs/finetune_shona_whisper_large_v2
+checkpoint_dir: /data/hf_cache/jgibson2/waxal/checkpoints/finetune_shona_whisper_large_v2
+evaluation_batch_size: 4
+fp16: true
+use_wandb: false
+decoding_strategy: greedy

@@ -1,0 +1,9 @@
+stage: train
+data_config: configs/data/lingala_fleurs.yaml
+model_config: configs/models/mms_1b_lowlr.yaml
+output_dir: /data/hf_cache/jgibson2/waxal/outputs/finetune_lingala_mms_1b_fleurs
+checkpoint_dir: /data/hf_cache/jgibson2/waxal/checkpoints/finetune_lingala_mms_1b_fleurs
+evaluation_batch_size: 4
+fp16: true
+use_wandb: false
+decoding_strategy: greedy

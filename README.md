@@ -32,18 +32,48 @@ metrics, and a log under its configured `output_dir`. WER above 100% is logged
 as a valid insertion-heavy result. Set `use_wandb: true` in an experiment only
 after authenticating W&B; local logging is always retained.
 
-Lightweight artifacts (`resolved_config.yaml`, `run.log`, `data_filter_stats.json`,
-`metrics.json`) are rooted at `/data/user_data/jgibson2/waxal/outputs`. Heavy
-artifacts — the HF model/dataset cache and fine-tuned model checkpoints
-(`checkpoint_dir`, referenced by `--checkpoint`) — are rooted at
-`/data/hf_cache/jgibson2/waxal` instead, since the former is a small per-user
-quota and the latter is a much larger shared cache mount.
+All artifacts — lightweight (`resolved_config.yaml`, `run.log`,
+`data_filter_stats.json`, `metrics.json`, under `output_dir`) and heavy (the HF
+model/dataset cache and fine-tuned model checkpoints, under `checkpoint_dir`,
+referenced by `--checkpoint`) — are rooted at `/data/hf_cache/jgibson2/waxal`, a
+large shared cache mount. `output_dir` originally lived on the much smaller
+`/data/user_data/jgibson2` per-user quota; that quota is shared across many
+unrelated projects on this account and filled up completely (0 bytes free) even
+though these are tiny text files, so it was moved here too.
 
 Create the paper-shaped subset result table after jobs finish:
 
 ```bash
 python -m src.report_results
 ```
+
+## Results
+
+All 36 runs (9 finetune + 9 evaluate + 9 zero-shot + 9 cross-domain, across the 3
+languages) are complete. Cells are WER% / CER%; `N/A` means the zero-shot model has
+no native support for that language.
+
+| Language | Omni. (ZS) | MMS-1B (ZS) | Whisper L (ZS) | MMS-300M (FT) | Whisp. S (FT) | Whisp. T (FT) |
+|---|---|---|---|---|---|---|
+| Lingala | 37.9 / 14.7 | 34.4 / 14.1 | 222.5 / 164.3 | 38.5 / 16.0 | 44.5 / 24.2 | 73.9 / 49.4 |
+| Shona | 34.2 / 6.3 | 47.3 / 11.4 | 374.0 / 191.8 | 26.4 / 5.4 | 43.9 / 23.1 | 43.8 / 20.9 |
+| Luganda | 47.9 / 11.7 | 44.3 / 10.7 | N/A | 16.3 / 4.4 | 64.1 / 42.8 | 80.3 / 62.2 |
+
+This reproduces the paper's central claim on this 3-language subset: fine-tuned
+edge models (MMS-300M especially) substantially outperform zero-shot foundation
+models on WAXAL's spontaneous conversational speech. Whisper Large-v3's zero-shot
+WER (222–374%) reflects the runaway-repetition hallucination behavior documented in
+`ASR.md`, not a metric error — see `WAXAL-NET.md` for how WER above 100% is
+interpreted. MMS-300M's fine-tuned numbers land close to the paper's own reported
+values for these three languages (e.g. Luganda 16.3/4.4 vs. the paper's 16.9/3.4).
+
+MMS-300M's fine-tuned column required real debugging to get right: an earlier
+version of `freeze_encoder` froze the entire wav2vec2 backbone rather than just the
+CNN feature extractor, which left the from-scratch CTC head with no adaptable
+signal — it silently collapsed to predicting one near-constant character across
+every utterance in all three languages (~99% WER/CER), caught only by inspecting
+actual model predictions rather than trusting the metrics table at face value. See
+`Architecture.md` for the fix and how it was diagnosed.
 
 ## Slurm
 

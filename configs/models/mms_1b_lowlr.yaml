@@ -1,0 +1,16 @@
+family: mms_1b_finetune
+checkpoint: facebook/mms-1b-all
+freeze_feature_encoder: true
+effective_batch_size: 32
+per_device_batch_size: 2
+gradient_accumulation_steps: 16
+gradient_checkpointing: true
+learning_rate: 3.0e-5
+lr_schedule: polynomial_decay
+warmup_steps: 500
+max_epochs: 30
+early_stopping_patience: 5
+seed: 42
+decoding_strategy: greedy
+mask_feature_prob: 0.05 # apply_spec_augment/mask_time_prob already on by default
+  # in MMS's own base config (0.075); only frequency masking needs opting in.

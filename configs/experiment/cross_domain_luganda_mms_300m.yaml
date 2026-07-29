@@ -1,7 +1,7 @@
 stage: cross_domain
 data_config: configs/data/luganda.yaml
 model_config: configs/models/mms_300m.yaml
-output_dir: /data/user_data/jgibson2/waxal/outputs/cross_domain_luganda_mms_300m
+output_dir: /data/hf_cache/jgibson2/waxal/outputs/cross_domain_luganda_mms_300m
 language: luganda
 fleurs_dataset_name: google/fleurs
 fleurs_config: lg_ug

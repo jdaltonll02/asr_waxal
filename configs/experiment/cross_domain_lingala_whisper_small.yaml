@@ -1,7 +1,7 @@
 stage: cross_domain
 data_config: configs/data/lingala.yaml
 model_config: configs/models/whisper_small.yaml
-output_dir: /data/user_data/jgibson2/waxal/outputs/cross_domain_lingala_whisper_small
+output_dir: /data/hf_cache/jgibson2/waxal/outputs/cross_domain_lingala_whisper_small
 language: lingala
 fleurs_dataset_name: google/fleurs
 fleurs_config: ln_cd

@@ -1,0 +1,17 @@
+family: whisper
+checkpoint: openai/whisper-large-v2
+effective_batch_size: 32
+per_device_batch_size: 4      # large-v2 ~3GB weights; 4 x accum 8 fits 40GB+
+gradient_accumulation_steps: 8
+learning_rate: 1.0e-5         # lower LR for large model — standard practice
+lr_schedule: polynomial_decay
+warmup_steps: 500
+max_epochs: 20
+early_stopping_patience: 3
+seed: 42
+decoding_strategy: greedy
+apply_spec_augment: true # SpecAugment (near-zero-cost augmentation, disabled by
+  # default in transformers' WhisperConfig); masking only applies in .train()
+  # mode, never during evaluate.py/zero_shot_eval.py/cross_domain_eval.py inference.
+mask_time_prob: 0.05
+mask_feature_prob: 0.05

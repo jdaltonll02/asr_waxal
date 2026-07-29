@@ -21,8 +21,8 @@ def metric_cell(path: Path) -> str:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--outputs-dir", default="/data/user_data/jgibson2/waxal/outputs")
-    parser.add_argument("--output", default="/data/user_data/jgibson2/waxal/outputs/waxal_results.md")
+    parser.add_argument("--outputs-dir", default="/data/hf_cache/jgibson2/waxal/outputs")
+    parser.add_argument("--output", default="/data/hf_cache/jgibson2/waxal/outputs/waxal_results.md")
     args = parser.parse_args()
     root = Path(args.outputs_dir)
     lines = ["| Language | Omni. (ZS) | MMS-1B (ZS) | Whisper L (ZS) | MMS-300M (FT) | Whisp. S (FT) | Whisp. T (FT) |",

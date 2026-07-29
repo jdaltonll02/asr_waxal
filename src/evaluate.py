@@ -9,8 +9,6 @@ from torch.utils.data import DataLoader
 from src.data.dataset import CTCCollator, WhisperCollator
 from src.data.clean_filter import clean_dataset
 from src.data.load_waxal import load_waxal
-from src.models.mms_wrapper import load_mms_300m
-from src.models.whisper_wrapper import load_whisper
 from src.utils.config import resolve_experiment, write_resolved_config
 from src.utils.logging_setup import setup_logging, write_json
 from src.utils.metrics import compute_metrics
@@ -65,12 +63,21 @@ def main():
     seed_everything(config["model"]["seed"])
     raw = load_waxal(config["data"])
     cleaned, _ = clean_dataset(raw, config["data"], logger)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     if config["model"]["family"] == "whisper":
-        model, processor = load_whisper(config["model"], config["data"]["language"])
-        model = model.from_pretrained(arguments.checkpoint).to("cuda" if torch.cuda.is_available() else "cpu")
+        from transformers import AutoProcessor, WhisperForConditionalGeneration
+        processor = AutoProcessor.from_pretrained(arguments.checkpoint)
+        model = WhisperForConditionalGeneration.from_pretrained(arguments.checkpoint).to(device)
+        model.generation_config.forced_decoder_ids = None
+        model.generation_config.suppress_tokens = []
+    elif config["model"]["family"] == "mms_1b_finetune":
+        from transformers import AutoProcessor, Wav2Vec2ForCTC
+        processor = AutoProcessor.from_pretrained(arguments.checkpoint)
+        model = Wav2Vec2ForCTC.from_pretrained(arguments.checkpoint).to(device)
     else:
-        model, processor = load_mms_300m(config["model"], cleaned[config["data"]["train_split"]], config["data"]["text_column"], output_dir)
-        model = model.from_pretrained(arguments.checkpoint).to("cuda" if torch.cuda.is_available() else "cpu")
+        from transformers import AutoProcessor, Wav2Vec2ForCTC
+        processor = AutoProcessor.from_pretrained(arguments.checkpoint)
+        model = Wav2Vec2ForCTC.from_pretrained(arguments.checkpoint).to(device)
     predictions, references = evaluate_model(model, processor, cleaned[config["data"]["test_split"]], config)
     metrics = compute_metrics(references, predictions)
     if metrics["wer_over_100"]:

@@ -1,7 +1,7 @@
 stage: train
 data_config: configs/data/lingala.yaml
 model_config: configs/models/whisper_small.yaml
-output_dir: /data/user_data/jgibson2/waxal/outputs/finetune_lingala_whisper_small
+output_dir: /data/hf_cache/jgibson2/waxal/outputs/finetune_lingala_whisper_small
 checkpoint_dir: /data/hf_cache/jgibson2/waxal/checkpoints/finetune_lingala_whisper_small
 evaluation_batch_size: 8
 fp16: true

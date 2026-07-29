@@ -1,0 +1,8 @@
+stage: evaluate
+data_config: configs/data/lingala.yaml
+model_config: configs/models/whisper_large_v2.yaml
+output_dir: /data/hf_cache/jgibson2/waxal/outputs/evaluate_multilingual_whisper_large_v2_lingala
+evaluation_batch_size: 4
+fp16: true
+use_wandb: false
+decoding_strategy: greedy
