@@ -1,0 +1,20 @@
+family: mms_300m
+checkpoint: facebook/mms-300m
+freeze_encoder: true
+effective_batch_size: 32
+per_device_batch_size: 8
+gradient_accumulation_steps: 4
+learning_rate: 1.0e-4
+lr_schedule: polynomial_decay
+warmup_steps: 500
+max_epochs: 30
+early_stopping_patience: 5
+seed: 42
+decoding_strategy: greedy
+mask_feature_prob: 0.05
+mask_time_prob: 0.075
+augment: true
+augment_kwargs:
+  p_speed: 0.5
+  p_noise: 0.5
+  p_rir: 0.3

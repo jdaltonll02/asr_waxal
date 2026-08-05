@@ -1,8 +1,9 @@
 """Generate a Zindi Phase 2 submission from three per-language MMS-300M checkpoints.
 
-Each clip is routed to its language checkpoint based on the language tag in the
-Test_phase2.csv ID prefix (lin_, sna_, lug_).  Falls back to the multilingual
-checkpoint for any unrecognised prefix.
+Each clip is routed to its language checkpoint using ASR-confidence LID:
+all three models run on every clip and the one with the highest mean
+max-softmax probability wins.  This avoids relying on ID prefixes (which
+are all 'ID_' in Phase 2) or an external LID model.
 
 Usage:
     python -m src.predict_phase2_per_lang \\
@@ -33,21 +34,12 @@ try:
 except ImportError:
     _PYCTCDECODE = False
 
-_BATCH_SIZE = 8
-
-# Map ID prefix → checkpoint key
-_PREFIX_MAP = {
-    "lin": "lingala",
-    "sna": "shona",
-    "lug": "luganda",
-}
-
 
 def _load_audio(path: Path) -> np.ndarray:
     array, sr = sf.read(str(path))
     if sr != 16000:
-        import resampy
-        array = resampy.resample(array, sr, 16000)
+        import librosa
+        array = librosa.resample(array, orig_sr=sr, target_sr=16000)
     if array.ndim > 1:
         array = array.mean(axis=1)
     return array.astype(np.float32)
@@ -74,17 +66,22 @@ def _load_model(ckpt: str, device: torch.device):
     return processor, model, decoder
 
 
-def _decode_batch(processor, model, decoder, arrays, device):
-    inputs = processor(arrays, sampling_rate=16000, return_tensors="pt", padding=True)
+def _asr_lid_score(model, processor, array: np.ndarray, device: torch.device) -> float:
+    """Mean max-softmax probability — higher = model is more confident on this clip."""
+    inputs = processor([array], sampling_rate=16000, return_tensors="pt", padding=True)
     with torch.inference_mode():
         logits = model(
             inputs.input_values.to(device),
             attention_mask=inputs.attention_mask.to(device),
         ).logits
+    return torch.softmax(logits, dim=-1).max(dim=-1).values.mean().item(), logits
+
+
+def _decode_logits(logits, processor, decoder):
     if decoder is not None:
         log_probs = torch.nn.functional.log_softmax(logits, dim=-1).cpu().numpy()
-        return decoder.decode_batch(None, log_probs, beam_width=100)
-    return processor.batch_decode(torch.argmax(logits, dim=-1))
+        return decoder.decode_batch(None, log_probs, beam_width=100)[0]
+    return processor.batch_decode(torch.argmax(logits, dim=-1))[0]
 
 
 def main():
@@ -95,7 +92,6 @@ def main():
     parser.add_argument("--shona-ckpt", required=True)
     parser.add_argument("--luganda-ckpt", required=True)
     parser.add_argument("--output", default="zindi_data/submission_phase2_per_lang_v2.csv")
-    parser.add_argument("--batch-size", type=int, default=_BATCH_SIZE)
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -110,48 +106,31 @@ def main():
         "luganda": args.luganda_ckpt,
     }
 
-    # Group IDs by language
-    lang_ids: dict[str, list[str]] = {k: [] for k in ckpt_map}
-    for id_ in ordered_ids:
-        prefix = id_.split("_")[0].lower()
-        lang = _PREFIX_MAP.get(prefix)
-        if lang is None:
-            # Fallback: assign to lingala (shouldn't happen in practice)
-            print(f"WARNING: unrecognised prefix '{prefix}' for ID {id_}, defaulting to lingala")
-            lang = "lingala"
-        lang_ids[lang].append(id_)
+    print("Loading all 3 checkpoints...")
+    models = {lang: _load_model(ckpt, device) for lang, ckpt in ckpt_map.items()}
 
     predictions: dict[str, str] = {}
+    lang_counts: dict[str, int] = {k: 0 for k in ckpt_map}
 
-    for lang, ids in lang_ids.items():
-        if not ids:
-            continue
-        print(f"\n--- {lang}: {len(ids)} clips ---")
-        processor, model, decoder = _load_model(ckpt_map[lang], device)
+    for n, id_ in enumerate(ordered_ids):
+        array = _load_audio(audio_dir / f"{id_}.wav")
 
-        batch_ids, batch_arrays = [], []
+        # ASR-confidence LID: pick the model with highest mean max-softmax prob
+        best_lang, best_score, best_logits = None, -1.0, None
+        for lang, (processor, model, _) in models.items():
+            score, logits = _asr_lid_score(model, processor, array, device)
+            if score > best_score:
+                best_lang, best_score, best_logits = lang, score, logits
 
-        def flush():
-            if not batch_ids:
-                return
-            preds = _decode_batch(processor, model, decoder, batch_arrays, device)
-            for id_, pred in zip(batch_ids, preds):
-                predictions[id_] = _derepeat(normalize_text(pred)) or "_"
-            batch_ids.clear()
-            batch_arrays.clear()
+        processor, _, decoder = models[best_lang]
+        pred = _decode_logits(best_logits, processor, decoder)
+        predictions[id_] = _derepeat(normalize_text(pred)) or "_"
+        lang_counts[best_lang] += 1
 
-        for n, id_ in enumerate(ids):
-            batch_ids.append(id_)
-            batch_arrays.append(_load_audio(audio_dir / f"{id_}.wav"))
-            if len(batch_ids) >= args.batch_size:
-                flush()
-            if (n + 1) % 200 == 0:
-                print(f"  {n + 1}/{len(ids)} done")
-        flush()
+        if (n + 1) % 100 == 0:
+            print(f"  {n + 1}/{len(ordered_ids)} done  lang_counts={lang_counts}")
 
-        # Free GPU memory before loading next model
-        del model, processor, decoder
-        torch.cuda.empty_cache()
+    print(f"Language distribution: {lang_counts}")
 
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     with open(args.output, "w", newline="", encoding="utf-8") as f:
@@ -160,7 +139,7 @@ def main():
         for id_ in ordered_ids:
             writer.writerow([id_, predictions[id_]])
 
-    print(f"\nWrote {len(ordered_ids)} rows to {args.output}")
+    print(f"Wrote {len(ordered_ids)} rows to {args.output}")
 
 
 if __name__ == "__main__":

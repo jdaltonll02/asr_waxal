@@ -17,6 +17,7 @@ import itertools
 from pathlib import Path
 
 import numpy as np
+import soundfile as sf
 import torch
 from datasets import concatenate_datasets, load_dataset
 from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
@@ -32,9 +33,12 @@ except ImportError:
 _ALPHAS = [0.0, 0.3, 0.5, 0.8, 1.0, 1.5, 2.0]
 _BETAS  = [0.0, 0.5, 1.0, 1.5, 2.0]
 
+_BATCH = 8
+
 _CONFIGS = ["lin_asr", "sna_asr", "lug_asr"]
-_CACHE   = "/data/hf_cache/jgibson2/waxal/cache"
-_BATCH   = 8
+_CACHE = "/data/hf_cache/jgibson2/waxal/cache"
+_LM_PATH = Path("/data/hf_cache/jgibson2/waxal/lm/multilingual.binary")
+_LM_CORPUS = Path("/data/hf_cache/jgibson2/waxal/lm/multilingual.txt")
 
 
 def _cer(ref: str, hyp: str) -> float:
@@ -45,7 +49,7 @@ def _cer(ref: str, hyp: str) -> float:
     return min(jiwer.cer(ref, hyp), 1.0)
 
 
-def _build_decoder(processor: Wav2Vec2Processor, alpha: float, beta: float):
+def _build_decoder(processor: Wav2Vec2Processor, alpha: float, beta: float, unigrams: set[str] | None):
     vocab = processor.tokenizer.get_vocab()
     labels = [k for k, _ in sorted(vocab.items(), key=lambda x: x[1])]
     labels[processor.tokenizer.pad_token_id] = ""
@@ -54,6 +58,8 @@ def _build_decoder(processor: Wav2Vec2Processor, alpha: float, beta: float):
         if lbl in seen:
             labels[i] = f"<dup{i}>"
         seen.add(lbl)
+    if unigrams is not None:
+        return build_ctcdecoder(labels, kenlm_model_path=str(_LM_PATH), unigrams=unigrams, alpha=alpha, beta=beta)
     return build_ctcdecoder(labels, alpha=alpha, beta=beta)
 
 
@@ -70,15 +76,15 @@ def main():
     processor = Wav2Vec2Processor.from_pretrained(args.checkpoint)
     model = Wav2Vec2ForCTC.from_pretrained(args.checkpoint).to(device).eval()
 
-    # Load validation splits
-    splits = []
-    for cfg in _CONFIGS:
-        ds = load_dataset("google/WaxalNLP", cfg, split="validation",
-                          cache_dir=_CACHE, trust_remote_code=True)
-        if args.max_samples and len(ds) > args.max_samples:
-            ds = ds.select(range(args.max_samples))
-        splits.append(ds)
+    # Load only the validation split for each language — no cast_column so audio
+    # is decoded on demand below via soundfile, avoiding a slow eager decode pass.
+    splits = [
+        load_dataset("google/WaxalNLP", cfg, split="validation", cache_dir=_CACHE)
+        for cfg in _CONFIGS
+    ]
     val_ds = concatenate_datasets(splits)
+    if args.max_samples and len(val_ds) > args.max_samples:
+        val_ds = val_ds.select(range(args.max_samples))
     print(f"Validation samples: {len(val_ds)}")
 
     # Collect logits once (expensive)
@@ -88,8 +94,23 @@ def main():
 
     for i in range(0, len(val_ds), _BATCH):
         batch = val_ds.select(range(i, min(i + _BATCH, len(val_ds))))
-        arrays = [np.array(ex["audio"]["array"], dtype=np.float32) for ex in batch]
-        refs   = [normalize_text(ex["transcription"]) for ex in batch]
+        arrays = []
+        for ex in batch:
+            raw = ex["audio"]
+            # raw is either already decoded (dict with 'array') or a path string
+            if isinstance(raw, dict):
+                arr = np.array(raw["array"], dtype=np.float32)
+                sr = raw.get("sampling_rate", 16000)
+            else:
+                arr, sr = sf.read(str(raw))
+                arr = arr.astype(np.float32)
+            if arr.ndim > 1:
+                arr = arr.mean(axis=1)
+            if sr != 16000:
+                import librosa
+                arr = librosa.resample(arr, orig_sr=sr, target_sr=16000)
+            arrays.append(arr if len(arr) > 0 else np.zeros(160, dtype=np.float32))
+        refs = [normalize_text(ex["transcription"]) for ex in batch]
         inputs = processor(arrays, sampling_rate=16000, return_tensors="pt", padding=True)
         with torch.inference_mode():
             logits = model(
@@ -106,9 +127,16 @@ def main():
 
     print(f"Logits collected for {len(all_log_probs)} utterances. Sweeping grid...")
 
+    unigrams = None
+    if _LM_PATH.exists():
+        unigrams = {word for line in open(_LM_CORPUS, encoding="utf-8") for word in line.split()}
+        print(f"Using KenLM fusion: {_LM_PATH}")
+    else:
+        print(f"WARNING: no KenLM found at {_LM_PATH}; sweeping with no LM (alpha/beta will have no effect)")
+
     results = []
     for alpha, beta in itertools.product(_ALPHAS, _BETAS):
-        decoder = _build_decoder(processor, alpha, beta)
+        decoder = _build_decoder(processor, alpha, beta, unigrams)
         hyps = decoder.decode_batch(None, all_log_probs, beam_width=100)
         hyps_norm = [normalize_text(h) for h in hyps]
         avg_cer = float(np.mean([_cer(r, h) for r, h in zip(all_refs, hyps_norm)]))

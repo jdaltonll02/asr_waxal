@@ -1,0 +1,9 @@
+stage: train
+data_config: configs/data/multilingual.yaml
+model_config: configs/models/mms_300m_largebatch.yaml
+output_dir: /data/hf_cache/jgibson2/waxal/outputs/finetune_multilingual_mms_300m_largebatch
+checkpoint_dir: /data/hf_cache/jgibson2/waxal/checkpoints/finetune_multilingual_mms_300m_largebatch
+evaluation_batch_size: 8
+fp16: true
+use_wandb: false
+decoding_strategy: greedy

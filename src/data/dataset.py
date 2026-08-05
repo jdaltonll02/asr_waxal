@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 import torch
 
@@ -47,3 +48,24 @@ class CTCCollator:
         labels = self.processor.tokenizer([normalize_text(item[self.text_column]) for item in features], return_tensors="pt", padding=True).input_ids
         labels[labels == self.processor.tokenizer.pad_token_id] = -100
         return {"input_values": inputs.input_values, "attention_mask": inputs.attention_mask, "labels": labels}
+
+
+@dataclass
+class AugmentedCTCCollator(CTCCollator):
+    """CTCCollator that applies on-the-fly audio augmentation during training.
+
+    A TrainingModeCallback (see train.py) toggles `self.training` before each
+    train/eval phase so augmentation is skipped during evaluation.
+    """
+    aug_kwargs: dict = field(default_factory=dict)
+    training: bool = True
+
+    def __call__(self, features):
+        if not self.training:
+            return super().__call__(features)
+        from src.data.augment import augment_audio
+        augmented = [augment_audio(audio_array(item, self.audio_column), **self.aug_kwargs)
+                     for item in features]
+        patched = [{**item, self.audio_column: {**item[self.audio_column], "array": aug}}
+                   for item, aug in zip(features, augmented)]
+        return super().__call__(patched)

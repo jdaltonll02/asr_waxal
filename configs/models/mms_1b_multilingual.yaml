@@ -1,0 +1,16 @@
+family: mms_300m
+checkpoint: facebook/mms-1b-all
+freeze_encoder: true  # freeze CNN feature extractor only (~10M of ~1B params)
+effective_batch_size: 64
+per_device_batch_size: 4   # 4 x accumulation 16; gradient_checkpointing keeps this in 48GB
+gradient_accumulation_steps: 16
+gradient_checkpointing: true
+learning_rate: 5.0e-5
+lr_schedule: cosine
+warmup_steps: 500
+max_epochs: 30
+early_stopping_patience: 5
+seed: 42
+decoding_strategy: greedy
+mask_feature_prob: 0.05
+mask_time_prob: 0.075

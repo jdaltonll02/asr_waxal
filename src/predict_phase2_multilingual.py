@@ -31,13 +31,15 @@ except ImportError:
     _PYCTCDECODE = False
 
 _BATCH_SIZE = 8
+_LM_PATH = Path("/data/hf_cache/jgibson2/waxal/lm/multilingual.binary")
+_LM_CORPUS = Path("/data/hf_cache/jgibson2/waxal/lm/multilingual.txt")
 
 
 def _load_audio(path: Path) -> np.ndarray:
     array, sr = sf.read(str(path))
     if sr != 16000:
-        import resampy
-        array = resampy.resample(array, sr, 16000)
+        import librosa
+        array = librosa.resample(array, orig_sr=sr, target_sr=16000)
     if array.ndim > 1:
         array = array.mean(axis=1)
     return array.astype(np.float32)
@@ -54,7 +56,16 @@ def main():
                         help="pyctcdecode LM weight (alpha). Overrides default 0.0.")
     parser.add_argument("--lm-beta", type=float, default=None,
                         help="pyctcdecode word insertion bonus (beta). Overrides default 0.0.")
+    parser.add_argument("--beam-width", type=int, default=100)
+    parser.add_argument("--lm-path", default=None, help="Override the default KenLM binary path.")
+    parser.add_argument("--lm-corpus", default=None, help="Override the default KenLM unigram corpus path.")
     args = parser.parse_args()
+
+    global _LM_PATH, _LM_CORPUS
+    if args.lm_path:
+        _LM_PATH = Path(args.lm_path)
+    if args.lm_corpus:
+        _LM_CORPUS = Path(args.lm_corpus)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     audio_dir = Path(args.audio_dir)
@@ -81,8 +92,13 @@ def main():
                 kw["alpha"] = args.lm_alpha
             if args.lm_beta is not None:
                 kw["beta"] = args.lm_beta
-            decoder = build_ctcdecoder(labels, **kw)
-            print(f"pyctcdecode alpha={kw.get('alpha', 0.0)}  beta={kw.get('beta', 0.0)}")
+            if _LM_PATH.exists():
+                unigrams = {word for line in open(_LM_CORPUS, encoding="utf-8") for word in line.split()}
+                decoder = build_ctcdecoder(labels, kenlm_model_path=str(_LM_PATH), unigrams=unigrams, **kw)
+                print(f"Using KenLM fusion: {_LM_PATH}  alpha={kw.get('alpha', 0.5)}  beta={kw.get('beta', 1.5)}")
+            else:
+                decoder = build_ctcdecoder(labels, **kw)
+                print(f"No KenLM found at {_LM_PATH}; pyctcdecode alpha={kw.get('alpha', 0.0)}  beta={kw.get('beta', 0.0)}")
         else:
             decoder = None
     else:
@@ -104,7 +120,7 @@ def main():
                                attention_mask=inputs.attention_mask.to(device)).logits
             if decoder is not None:
                 log_probs = torch.nn.functional.log_softmax(logits, dim=-1).cpu().numpy()
-                preds = decoder.decode_batch(None, log_probs, beam_width=100)
+                preds = decoder.decode_batch(None, log_probs, beam_width=args.beam_width)
             else:
                 preds = processor.batch_decode(torch.argmax(logits, dim=-1))
         else:

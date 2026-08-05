@@ -6,4 +6,6 @@ venv/
 *__pycache__
 zindi_data/phase2_audio/
 zindi_data/audio.zip
+zindi_data/phase2_audio_OLD_1500/
+zindi_data/newaudios.zip
 zindi_data/Waxal_Challenge_Starter_Code.ipynb

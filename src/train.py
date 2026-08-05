@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import argparse
 
-from transformers import EarlyStoppingCallback, Seq2SeqTrainer, Seq2SeqTrainingArguments, Trainer, TrainingArguments
+from transformers import EarlyStoppingCallback, Seq2SeqTrainer, Seq2SeqTrainingArguments, Trainer, TrainerCallback, TrainingArguments
 
 from src.data.clean_filter import clean_dataset
-from src.data.dataset import CTCCollator, WhisperCollator
+from src.data.dataset import AugmentedCTCCollator, CTCCollator, WhisperCollator
 from src.data.load_multilingual import load_multilingual
+from src.data.load_multilingual_with_pseudolabels import load_multilingual_with_pseudolabels
 from src.data.load_waxal import load_waxal
 from src.data.load_waxal_with_fleurs import load_waxal_with_fleurs
 from src.data.speaker_split import apply_speaker_holdout
@@ -15,6 +16,18 @@ from src.models.whisper_wrapper import load_whisper
 from src.utils.config import resolve_experiment, write_resolved_config
 from src.utils.logging_setup import setup_logging, write_json
 from src.utils.seed import seed_everything
+
+
+class AugmentToggleCallback(TrainerCallback):
+    """Disables augmentation in the collator during evaluation phases."""
+    def __init__(self, collator):
+        self._collator = collator
+
+    def on_evaluate(self, args, state, control, **kwargs):
+        self._collator.training = False
+
+    def on_epoch_begin(self, args, state, control, **kwargs):
+        self._collator.training = True
 
 
 def training_arguments(config):
@@ -42,7 +55,7 @@ def main():
     write_resolved_config(config, config["output_dir"])
     seed_everything(config["model"]["seed"])
     if "hf_dataset_configs" in config["data"]:
-        loader = load_multilingual
+        loader = load_multilingual_with_pseudolabels if config["data"].get("pseudo_label_dir") else load_multilingual
     elif config["data"].get("use_fleurs_augmentation"):
         loader = load_waxal_with_fleurs
     else:
@@ -72,9 +85,16 @@ def main():
     else:
         model, processor = load_mms_300m(model_config, train_set, config["data"]["text_column"], config["output_dir"])
         args = TrainingArguments(**training_arguments(config))
-        collator = CTCCollator(processor, config["data"]["audio_column"], config["data"]["text_column"])
+        aug_kwargs = model_config.get("augment_kwargs", {})
+        if model_config.get("augment"):
+            collator = AugmentedCTCCollator(processor, config["data"]["audio_column"], config["data"]["text_column"], aug_kwargs=aug_kwargs)
+            callbacks = [EarlyStoppingCallback(model_config["early_stopping_patience"]), AugmentToggleCallback(collator)]
+        else:
+            collator = CTCCollator(processor, config["data"]["audio_column"], config["data"]["text_column"])
+            callbacks = [EarlyStoppingCallback(model_config["early_stopping_patience"])]
         trainer = Trainer(model=model, args=args, train_dataset=train_set, eval_dataset=validation_set,
-                          data_collator=collator, callbacks=[EarlyStoppingCallback(model_config["early_stopping_patience"])])
+                          data_collator=collator,
+                          callbacks=callbacks)
     trainer.train(resume_from_checkpoint=arguments.resume_from_checkpoint)
     trainer.save_model(config["checkpoint_dir"] + "/best_model")
     processor.save_pretrained(config["checkpoint_dir"] + "/best_model")

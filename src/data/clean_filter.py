@@ -20,7 +20,11 @@ def clean_split(dataset, config: dict):
 
 
 def split_stats(dataset, config: dict) -> dict[str, float | int]:
-    durations = [duration_seconds(example, config["audio_column"]) for example in dataset]
+    durations = dataset.map(
+        lambda ex: {"__duration": duration_seconds(ex, config["audio_column"])},
+        num_proc=config.get("num_proc"),
+        remove_columns=dataset.column_names,
+    )["__duration"]
     return {"utterances": len(dataset), "hours": sum(durations) / 3600}
 
 
