@@ -1,0 +1,14 @@
+language: tigrinya
+iso_code: tir
+hf_dataset_name: google/WaxalNLP
+hf_dataset_config: tir_asr
+train_split: train
+val_split: validation
+test_split: test
+min_duration_sec: 1.5
+max_words_per_sec: 4.0
+audio_column: audio
+text_column: transcription
+cache_dir: /kaggle/working/hf_cache
+num_proc: 4
+fleurs_config: ti_et

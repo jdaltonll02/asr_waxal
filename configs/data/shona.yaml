@@ -9,6 +9,6 @@ min_duration_sec: 1.5
 max_words_per_sec: 4.0
 audio_column: audio
 text_column: transcription
-cache_dir: /data/hf_cache/jgibson2/waxal/cache
-num_proc: 8
+cache_dir: /kaggle/working/hf_cache
+num_proc: 4
 fleurs_config: sn_zw
