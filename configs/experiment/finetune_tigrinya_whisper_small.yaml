@@ -1,0 +1,9 @@
+stage: train
+data_config: configs/data/tigrinya.yaml
+model_config: configs/models/whisper_small.yaml
+output_dir: /kaggle/working/outputs/finetune_tigrinya_whisper_small
+checkpoint_dir: /kaggle/working/checkpoints/finetune_tigrinya_whisper_small
+evaluation_batch_size: 8
+fp16: true
+use_wandb: false
+decoding_strategy: greedy

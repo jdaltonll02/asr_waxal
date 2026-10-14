@@ -1,0 +1,9 @@
+stage: train
+data_config: configs/data/dagaare.yaml
+model_config: configs/models/whisper_small.yaml
+output_dir: /kaggle/working/outputs/finetune_dagaare_whisper_small
+checkpoint_dir: /kaggle/working/checkpoints/finetune_dagaare_whisper_small
+evaluation_batch_size: 8
+fp16: true
+use_wandb: false
+decoding_strategy: greedy

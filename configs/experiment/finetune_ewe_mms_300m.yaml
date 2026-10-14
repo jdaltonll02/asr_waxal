@@ -1,0 +1,9 @@
+stage: train
+data_config: configs/data/ewe.yaml
+model_config: configs/models/mms_300m.yaml
+output_dir: /kaggle/working/outputs/finetune_ewe_mms_300m
+checkpoint_dir: /kaggle/working/checkpoints/finetune_ewe_mms_300m
+evaluation_batch_size: 8
+fp16: true
+use_wandb: false
+decoding_strategy: greedy

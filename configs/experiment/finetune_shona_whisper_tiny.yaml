@@ -1,8 +1,8 @@
 stage: train
 data_config: configs/data/shona.yaml
 model_config: configs/models/whisper_tiny.yaml
-output_dir: /data/user_data/jgibson2/waxal/outputs/finetune_shona_whisper_tiny
-checkpoint_dir: /data/hf_cache/jgibson2/waxal/checkpoints/finetune_shona_whisper_tiny
+output_dir: /kaggle/working/outputs/finetune_shona_whisper_tiny
+checkpoint_dir: /kaggle/working/checkpoints/finetune_shona_whisper_tiny
 evaluation_batch_size: 8
 fp16: true
 use_wandb: false
