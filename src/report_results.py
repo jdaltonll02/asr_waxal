@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 MODELS = ("omnilingual_1b", "mms_1b", "whisper_large_v3", "mms_300m", "whisper_small", "whisper_tiny")
-LANGUAGES = ("lingala", "shona", "luganda")
+LANGUAGES = ("acholi", "akan", "amharic", "dagaare", "dagbani", "ewe", "fula", "ikposo", "lingala", "luganda", "malagasy", "masaaba", "nyankole", "oromo", "shona", "sidama", "soga", "tigrinya", "wolaytta")
 
 
 def metric_cell(path: Path) -> str:
@@ -21,8 +21,8 @@ def metric_cell(path: Path) -> str:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--outputs-dir", default="/data/user_data/jgibson2/waxal/outputs")
-    parser.add_argument("--output", default="/data/user_data/jgibson2/waxal/outputs/waxal_results.md")
+    parser.add_argument("--outputs-dir", default="/kaggle/working/outputs")
+    parser.add_argument("--output", default="/kaggle/working/outputs/waxal_results.md")
     args = parser.parse_args()
     root = Path(args.outputs_dir)
     lines = ["| Language | Omni. (ZS) | MMS-1B (ZS) | Whisper L (ZS) | MMS-300M (FT) | Whisp. S (FT) | Whisp. T (FT) |",
