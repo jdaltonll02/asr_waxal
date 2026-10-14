@@ -1,0 +1,9 @@
+stage: zero_shot
+data_config: configs/data/akan.yaml
+model_config: configs/zero_shot/mms_1b.yaml
+output_dir: /kaggle/working/outputs/zero_shot_akan_mms_1b
+evaluation_batch_size: 4
+seed: 42
+fp16: true
+use_wandb: false
+decoding_strategy: greedy

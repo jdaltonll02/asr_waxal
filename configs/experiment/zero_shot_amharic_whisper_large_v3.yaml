@@ -1,0 +1,10 @@
+stage: zero_shot
+data_config: configs/data/amharic.yaml
+model_config: configs/zero_shot/whisper_large_v3.yaml
+output_dir: /kaggle/working/outputs/zero_shot_amharic_whisper_large_v3
+evaluation_batch_size: 4
+seed: 42
+fp16: true
+use_wandb: false
+decoding_strategy: greedy
+supports_language: true
