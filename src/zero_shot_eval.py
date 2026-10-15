@@ -40,6 +40,13 @@ def predict_omnilingual(dataset, config):
     return predictions, references
 
 
+def to_device(model, config):
+    if not torch.cuda.is_available():
+        return model
+    model = model.to("cuda")
+    return model.half() if config.get("fp16") else model
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
@@ -53,27 +60,30 @@ def main():
         write_json(config["output_dir"], "metrics.json", result)
         logger.info("N/A: %s", result["reason"])
         return
-    raw = load_waxal(config["data"])
+    test_split = config["data"]["test_split"]
+    raw = load_waxal(config["data"], [test_split])
     cleaned, stats = clean_dataset(raw, config["data"], logger)
-    write_json(config["output_dir"], "data_filter_stats.json", stats)
-    test = cleaned[config["data"]["test_split"]]
+    write_json(config["output_dir"], "test_filter_stats.json", stats)
+    test = cleaned[test_split]
     family = config["model"]["family"]
     if family == "whisper":
         model, processor = load_whisper(config["model"], config["data"]["language"])
-        model.to("cuda" if torch.cuda.is_available() else "cpu")
+        model = to_device(model, config)
         predictions, references = predict_whisper(model, processor, test, config)
     elif family == "mms_1b":
         model, processor = load_mms_1b(config["model"], config["data"]["iso_code"])
-        model.to("cuda" if torch.cuda.is_available() else "cpu")
+        model = to_device(model, config)
         predictions, references = predict_ctc(model, processor, test, config)
     elif family == "omnilingual":
         predictions, references = predict_omnilingual(test, config)
     else:
         raise ValueError(f"Unknown zero-shot family: {family}")
     metrics = compute_metrics(references, predictions)
+    metrics["num_utterances"] = len(references)
     if metrics["wer_over_100"]:
         logger.warning("WER exceeds 100%%; retaining it as valid insertion-heavy output.")
     write_json(config["output_dir"], "metrics.json", metrics)
+    write_json(config["output_dir"], "predictions.json", {"references": references, "predictions": predictions})
     logger.info("WER %.2f%% | CER %.2f%%", metrics["wer_percent"], metrics["cer_percent"])
 
 

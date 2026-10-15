@@ -1,0 +1,17 @@
+{
+  "id": "johndaltongibson/waxal-ft-fula-whisper-tiny",
+  "title": "waxal-ft-fula-whisper-tiny",
+  "code_file": "notebook.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "machine_shape": "NvidiaTeslaT4",
+  "dataset_sources": [
+    "johndaltongibson/waxal-asr-code"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": []
+}

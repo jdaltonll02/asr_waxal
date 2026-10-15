@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 
 import torch
 from torch.utils.data import DataLoader
@@ -9,40 +8,49 @@ from torch.utils.data import DataLoader
 from src.data.dataset import CTCCollator, WhisperCollator
 from src.data.clean_filter import clean_dataset
 from src.data.load_waxal import load_waxal
-from src.models.mms_wrapper import load_mms_300m
-from src.models.whisper_wrapper import load_whisper
 from src.utils.config import resolve_experiment, write_resolved_config
 from src.utils.logging_setup import setup_logging, write_json
 from src.utils.metrics import compute_metrics
 from src.utils.seed import seed_everything
 
 
+def device():
+    return "cuda" if torch.cuda.is_available() else "cpu"
+
+
+def raw_references(dataset, config):
+    # References come straight from the transcripts (not decoded label ids), so
+    # characters absent from a CTC training vocabulary are not turned into [UNK].
+    # Column access does not decode audio; DataLoader order matches (no shuffle).
+    return [str(text) for text in dataset[config["data"]["text_column"]]]
+
+
 def predict_whisper(model, processor, dataset, config):
     loader = DataLoader(dataset, batch_size=config["evaluation_batch_size"],
                         collate_fn=WhisperCollator(processor, config["data"]["audio_column"], config["data"]["text_column"]))
-    device = next(model.parameters()).device
-    predictions, references = [], []
+    target = next(model.parameters())
+    predictions = []
     model.eval()
     with torch.inference_mode():
         for batch in loader:
-            generated = model.generate(batch["input_features"].to(device), do_sample=False, num_beams=1)
+            features = batch["input_features"].to(target.device, dtype=target.dtype)
+            generated = model.generate(features, do_sample=False, num_beams=1)
             predictions.extend(processor.batch_decode(generated, skip_special_tokens=True))
-            references.extend(processor.tokenizer.batch_decode(torch.where(batch["labels"] == -100, processor.tokenizer.pad_token_id, batch["labels"]), skip_special_tokens=True))
-    return predictions, references
+    return predictions, raw_references(dataset, config)
 
 
 def predict_ctc(model, processor, dataset, config):
     loader = DataLoader(dataset, batch_size=config["evaluation_batch_size"],
                         collate_fn=CTCCollator(processor, config["data"]["audio_column"], config["data"]["text_column"]))
-    device = next(model.parameters()).device
-    predictions, references = [], []
+    target = next(model.parameters())
+    predictions = []
     model.eval()
     with torch.inference_mode():
         for batch in loader:
-            logits = model(input_values=batch["input_values"].to(device), attention_mask=batch["attention_mask"].to(device)).logits
+            logits = model(input_values=batch["input_values"].to(target.device, dtype=target.dtype),
+                           attention_mask=batch["attention_mask"].to(target.device)).logits
             predictions.extend(processor.batch_decode(torch.argmax(logits, dim=-1)))
-            references.extend(processor.batch_decode(torch.where(batch["labels"] == -100, processor.tokenizer.pad_token_id, batch["labels"]), group_tokens=False))
-    return predictions, references
+    return predictions, raw_references(dataset, config)
 
 
 def evaluate_model(model, processor, dataset, config):
@@ -51,6 +59,23 @@ def evaluate_model(model, processor, dataset, config):
     if config["model"]["family"] == "whisper":
         return predict_whisper(model, processor, dataset, config)
     return predict_ctc(model, processor, dataset, config)
+
+
+def load_finetuned(family: str, checkpoint: str):
+    """Load a fine-tuned model with the processor (incl. MMS vocabulary) saved beside it."""
+    if family == "whisper":
+        from transformers import WhisperForConditionalGeneration, WhisperProcessor
+        processor = WhisperProcessor.from_pretrained(checkpoint)
+        model = WhisperForConditionalGeneration.from_pretrained(checkpoint)
+        model.generation_config.forced_decoder_ids = None
+        model.generation_config.suppress_tokens = []
+    elif family == "mms_300m":
+        from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
+        processor = Wav2Vec2Processor.from_pretrained(checkpoint)
+        model = Wav2Vec2ForCTC.from_pretrained(checkpoint)
+    else:
+        raise ValueError(f"Unsupported fine-tuned family: {family}")
+    return model.to(device()), processor
 
 
 def main():
@@ -63,19 +88,18 @@ def main():
     logger = setup_logging(output_dir)
     write_resolved_config(config, output_dir)
     seed_everything(config["model"]["seed"])
-    raw = load_waxal(config["data"])
-    cleaned, _ = clean_dataset(raw, config["data"], logger)
-    if config["model"]["family"] == "whisper":
-        model, processor = load_whisper(config["model"], config["data"]["language"])
-        model = model.from_pretrained(arguments.checkpoint).to("cuda" if torch.cuda.is_available() else "cpu")
-    else:
-        model, processor = load_mms_300m(config["model"], cleaned[config["data"]["train_split"]], config["data"]["text_column"], output_dir)
-        model = model.from_pretrained(arguments.checkpoint).to("cuda" if torch.cuda.is_available() else "cpu")
-    predictions, references = evaluate_model(model, processor, cleaned[config["data"]["test_split"]], config)
+    test_split = config["data"]["test_split"]
+    raw = load_waxal(config["data"], [test_split])
+    cleaned, stats = clean_dataset(raw, config["data"], logger)
+    write_json(output_dir, "test_filter_stats.json", stats)
+    model, processor = load_finetuned(config["model"]["family"], arguments.checkpoint)
+    predictions, references = evaluate_model(model, processor, cleaned[test_split], config)
     metrics = compute_metrics(references, predictions)
+    metrics["num_utterances"] = len(references)
     if metrics["wer_over_100"]:
         logger.warning("WER exceeds 100%%; retaining it as a valid insertion-heavy result.")
     write_json(output_dir, "metrics.json", metrics)
+    write_json(output_dir, "predictions.json", {"references": references, "predictions": predictions})
     logger.info("WER %.2f%% | CER %.2f%%", metrics["wer_percent"], metrics["cer_percent"])
 
 

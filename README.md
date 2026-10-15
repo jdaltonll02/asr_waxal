@@ -32,53 +32,58 @@ normalized jiwer WER/CER, and deterministic FLEURS samples.
 
 **Zero-shot:** MMS-1B, Omnilingual-1B, Whisper Large-v3 (supports Amharic, Lingala, Malagasy, Shona only)
 **Fine-tuned:** MMS-300M, Whisper Small, Whisper Tiny
-**Cross-domain (FLEURS):** MMS-300M, Whisper Small, Whisper Tiny (for 8 languages with FLEURS)
+**Cross-domain (FLEURS):** MMS-300M, Whisper Small, Whisper Tiny on the paper's 6 overlapping languages
+(Amharic, Fula, Lingala, Luganda, Oromo, Shona). Malagasy and Tigrinya configs also exist but are not
+scheduled, because the paper does not report them.
 
-## Kaggle Setup
+## Running on Kaggle
 
-1. Upload this repository as a Kaggle Dataset named `waxal-asr-code`.
-2. In your Kaggle notebook, add the dataset to get the code at `/kaggle/input/waxal-asr-code/asr_waxal`.
-3. Add the code directory to sys.path:
-   ```python
-   import sys
-   sys.path.insert(0, "/kaggle/input/waxal-asr-code/asr_waxal")
+Every job is a generated notebook in `kaggle/kernels/<slug>/`, driven by `kaggle/jobs.py`:
+
+- 57 fine-tuning jobs `waxal-ft-<language>-<model>`, one (language, model) pair each. Each trains, then
+  evaluates on the WAXAL test split, then (for the 6 FLEURS languages) on 300 FLEURS utterances.
+- 5 zero-shot jobs `waxal-zs-<model>[-a|-b]`, each looping over its languages.
+
+One-time setup:
+
+1. `pip install kaggle` and put your API token in `~/.kaggle/kaggle.json`.
+2. Create a Hugging Face **write** token and add it in Kaggle as a secret named `HF_TOKEN`.
+   Each fine-tuning job mirrors its checkpoints to a private `waxal-net-finetune_<language>_<model>`
+   model repo. That is what lets a job outlive Kaggle's 12 h session limit.
+3. Upload the code (sub-folders are zipped; the CLI skips them otherwise):
+   ```bash
+   python kaggle/jobs.py push-code -m "describe the change"
    ```
-4. Run `kaggle/setup.sh` (or the equivalent pip install cell) to install dependencies.
-5. Set environment variables:
-   ```python
-   import os
-   os.environ["HF_HOME"] = "/kaggle/working/hf_cache"
-   os.environ["TRANSFORMERS_CACHE"] = "/kaggle/working/hf_cache"
-   os.environ["WANDB_DISABLED"] = "true"
-   ```
 
-## Running Fine-tuning (Kaggle Notebooks)
+Run jobs (each push starts a GPU T4 x2 run with internet on):
 
-Open `kaggle/notebooks/finetune_{language}.ipynb` for the language you want to fine-tune.
-Each notebook fine-tunes all 3 models (Whisper Tiny, Whisper Small, MMS-300M) in sequence,
-runs evaluation, and (for languages with FLEURS) cross-domain evaluation.
-
-## Running Zero-shot Evaluation
-
-Open `kaggle/notebooks/zero_shot_eval_all.ipynb`. This runs all 19 languages × 3 zero-shot
-models (57 total evaluations), grouped by model.
-
-## Aggregating Results
-
-After all runs complete, open `kaggle/notebooks/aggregate_results.ipynb` to build the
-paper's Table 1 and Table 3 from all metrics.json files.
-
-Alternatively:
 ```bash
-python -m src.report_results --outputs-dir /kaggle/working/outputs
+python kaggle/jobs.py push ft-acholi-whisper-tiny   # smoke test first
+python kaggle/jobs.py push ft-acholi ft-luganda      # every job whose slug contains a pattern
+python kaggle/jobs.py status ft-acholi
 ```
+
+After pushing a job for the first time, open it on Kaggle once and turn on the `HF_TOKEN` secret
+(Add-ons -> Secrets); later versions keep it. Without the secret a job still runs, but it cannot resume.
+
+A job that hits its training deadline (10.5 h into the session) saves, pushes and stops. Push it again
+and it resumes from the last checkpoint. A job whose training already finished goes straight to evaluation.
+
+Collect results and compare them with the paper:
+
+```bash
+python kaggle/jobs.py collect        # downloads job outputs -> results/waxal_results.md
+```
+
+The code is never installed into Kaggle's Python 3.13. `kaggle/setup_env.sh` builds a pinned
+Python 3.12 venv with `uv`, because numpy 1.26 and fairseq2 (Omnilingual) have no 3.13 wheels.
 
 ## Config Structure
 
 ```
 configs/
   data/           # 19 language data configs
-  experiment/     # 57 finetune + 57 zero_shot + 24 cross_domain = 138 experiment configs
+  experiment/     # 57 finetune + 57 zero_shot + 24 cross_domain experiment configs
   models/         # Finetune model configs (whisper_tiny, whisper_small, mms_300m)
   zero_shot/      # Zero-shot model configs (mms_1b, omnilingual_1b, whisper_large_v3)
 ```
@@ -93,6 +98,11 @@ Split names: `train`, `validation`, `test`. Audio field: `audio`. Text field: `t
 1. Omnilingual-1B maps to `facebook/omniASR-CTC-1B` / `omniASR_CTC_1B`.
 2. MMS-300M freezes only the CNN feature extractor; the transformer backbone adapts with a fresh CTC head.
 3. Both filtering rules run independently on train, validation, and test.
-4. Early stopping minimizes validation loss.
-5. Effective batch size: 8 per device × 4 accumulation steps.
-6. All Kaggle paths use `/kaggle/working/` prefix.
+4. Early stopping minimizes validation loss, evaluated and checkpointed every 500 steps (all of
+   the paper's Table 5 step counts are multiples of 500).
+5. Effective batch size 32 = per-device batch × GPUs × accumulation (accumulation is derived at run time).
+6. Outputs and checkpoints go under `/kaggle/working/`; the HF cache goes in `/tmp/hf_cache` so it
+   does not count against the 20 GB output limit.
+7. Only the labelled `train`/`validation`/`test` parquet files are downloaded. Each WAXAL config also
+   has a 20-35 GB `unlabeled` split that is never used.
+8. Whisper training drops utterances whose labels exceed the decoder's 448 positions (logged per run).

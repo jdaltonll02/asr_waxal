@@ -5,14 +5,19 @@ freeze_encoder: true # freezes only the CNN feature extractor (see src/models/mm
   # left the from-scratch CTC head with no adaptable signal and it collapsed
   # to predicting one near-constant output regardless of input audio.
 effective_batch_size: 32
-per_device_batch_size: 8 # ASSUMPTION: 8 x accumulation 4; adjust in YAML if required.
-gradient_accumulation_steps: 4
+per_device_batch_size: 4 # T4 (16 GB): ~20 s average WAXAL clips through the 24-layer encoder.
+gradient_checkpointing: true # trades ~30% speed for fitting batch 4 on a 16 GB GPU.
+max_train_duration_sec: null # set (e.g. 40) only if rare very long clips cause OOM.
+# gradient_accumulation_steps is derived in src/train.py so that
+# per_device_batch_size x n_gpu x accumulation == effective_batch_size.
 learning_rate: 1.0e-4 # reverted from a 5.0e-4 smoke test: raising the LR alone
   # did not fix the collapse above (only marginally lowered the loss floor);
   # now that feature_projection + the transformer encoder are trainable too,
   # 1e-4 (matching the paper's uniform rate across architectures) is safer.
 lr_schedule: polynomial_decay
 warmup_steps: 500
+eval_steps: 500 # eval/save cadence; the paper's Table 5 step counts are all multiples of 500.
+dataloader_num_workers: 4
 max_epochs: 30
 early_stopping_patience: 3
 seed: 42

@@ -1,0 +1,4 @@
+# Only for Omnilingual-1B zero-shot evaluation. Installed on top of
+# requirements.txt: fairseq2 0.5.2-0.6 pins torch==2.8.0, numpy~=1.23 and
+# huggingface_hub~=0.32, which the pins above already satisfy.
+omnilingual-asr==0.2.0

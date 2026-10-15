@@ -3,4 +3,4 @@ slurm/
 logs/
 .claude/
 venv/
-*__pycache__
+*__pycache__results/

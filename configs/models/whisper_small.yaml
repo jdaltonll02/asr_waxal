@@ -1,11 +1,14 @@
 family: whisper
 checkpoint: openai/whisper-small
 effective_batch_size: 32
-per_device_batch_size: 8 # ASSUMPTION: 8 x accumulation 4 fits the stated 40 GB GPU.
-gradient_accumulation_steps: 4
+per_device_batch_size: 8 # fits a 16 GB T4 with fp16 (inputs are always padded to 30 s).
+# gradient_accumulation_steps is derived in src/train.py so that
+# per_device_batch_size x n_gpu x accumulation == effective_batch_size.
 learning_rate: 1.0e-4
 lr_schedule: polynomial_decay
 warmup_steps: 500
+eval_steps: 500 # eval/save cadence; the paper's Table 5 step counts are all multiples of 500.
+dataloader_num_workers: 4
 max_epochs: 30
 early_stopping_patience: 3
 seed: 42

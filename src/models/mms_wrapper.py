@@ -5,9 +5,11 @@ from pathlib import Path
 
 from transformers import AutoFeatureExtractor, Wav2Vec2CTCTokenizer, Wav2Vec2ForCTC, Wav2Vec2Processor
 
+from src.data.dataset import ctc_text
+
 
 def build_vocab(train_dataset, text_column: str, output_dir: str) -> str:
-    characters = sorted({char for text in train_dataset[text_column] for char in text.lower()})
+    characters = sorted({char for text in train_dataset[text_column] for char in ctc_text(text)})
     vocab = {char: index for index, char in enumerate(characters)}
     vocab["|"] = vocab.pop(" ", len(vocab))
     vocab["[UNK]"] = len(vocab)
@@ -24,7 +26,10 @@ def load_mms_300m(model_config: dict, train_dataset, text_column: str, output_di
     processor = Wav2Vec2Processor(feature_extractor=feature_extractor, tokenizer=tokenizer)
     model = Wav2Vec2ForCTC.from_pretrained(model_config["checkpoint"], vocab_size=len(tokenizer),
                                             ignore_mismatched_sizes=True, pad_token_id=tokenizer.pad_token_id,
-                                            ctc_loss_reduction="mean")
+                                            ctc_loss_reduction="mean",
+                                            # fp16 CTC on T4s can hit inf losses on rare
+                                            # unalignable (audio shorter than label) batches.
+                                            ctc_zero_infinity=True)
     if model_config["freeze_encoder"]:
         # Freeze only the CNN feature extractor (~4.2M of ~315M wav2vec2
         # params), matching the standard wav2vec2 CTC fine-tuning recipe.
