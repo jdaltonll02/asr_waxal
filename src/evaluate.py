@@ -68,6 +68,7 @@ def load_finetuned(family: str, checkpoint: str):
         from transformers import WhisperForConditionalGeneration, WhisperProcessor
         processor = WhisperProcessor.from_pretrained(checkpoint)
         model = configure_decoding(WhisperForConditionalGeneration.from_pretrained(checkpoint))
+        model.config.use_cache = True  # disabled for training; needed for fast generation
     elif family == "mms_300m":
         from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
         processor = Wav2Vec2Processor.from_pretrained(checkpoint)

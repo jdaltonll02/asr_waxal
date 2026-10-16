@@ -113,6 +113,9 @@ def main():
         callbacks.append(HubSyncCallback(mirror))
     if model_config["family"] == "whisper":
         model, processor = load_whisper(model_config)
+        # The decoding KV cache is useless in training, and DataParallel gathers
+        # it from every GPU onto GPU 0 (Whisper Small OOMed on a T4).
+        model.config.use_cache = False
         max_tokens = model.config.max_target_positions
         train_set = drop_overlong_labels(train_set, processor.tokenizer, max_tokens, data_config["text_column"], logger, "train")
         validation_set = drop_overlong_labels(validation_set, processor.tokenizer, max_tokens, data_config["text_column"], logger, "validation")
