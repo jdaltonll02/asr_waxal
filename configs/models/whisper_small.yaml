@@ -2,6 +2,9 @@ family: whisper
 checkpoint: openai/whisper-small
 effective_batch_size: 32
 per_device_batch_size: 8 # fits a 16 GB T4 with fp16 (inputs are always padded to 30 s).
+max_train_duration_sec: 30 # Whisper sees only 30 s; longer clips carry transcript text with no
+  # audio behind it and teach the decoder to keep generating (Acholi: 15% of clips,
+  # 354% test WER on them before this filter). Standard Whisper fine-tuning recipe.
 # gradient_accumulation_steps is derived in src/train.py so that
 # per_device_batch_size x n_gpu x accumulation == effective_batch_size.
 learning_rate: 1.0e-4
