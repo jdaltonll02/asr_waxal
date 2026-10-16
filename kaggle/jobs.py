@@ -66,12 +66,22 @@ else:
     print("No hf_token.txt input (waxal-hf-token dataset); checkpoints will not survive this session.")
 
 
+LOG_DIR = Path("/kaggle/working/logs")
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+
 def run(*command, check=True):
-    """Run a command from the repo root, streaming its output into the notebook log."""
+    """Run a command from the repo root, streaming its output to the notebook and to
+    /kaggle/working/logs (kept in the job output; the API's notebook log can be empty)."""
+    name = "_".join(Path(str(part)).stem for part in command[1:4])
+    log_path = LOG_DIR / f"{time.strftime('%H%M%S')}_{name}.log"
     process = subprocess.Popen(list(command), cwd=REPO, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                text=True, bufsize=1)
-    for line in process.stdout:
-        print(line, end="", flush=True)
+    with open(log_path, "w", encoding="utf-8") as log:
+        for line in process.stdout:
+            print(line, end="", flush=True)
+            log.write(line)
+            log.flush()
     if process.wait() and check:
         raise RuntimeError(f"{' '.join(map(str, command))} exited with {process.returncode}")
     return process.returncode
