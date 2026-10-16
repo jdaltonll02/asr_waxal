@@ -38,8 +38,10 @@ def load_mms_300m(model_config: dict, train_dataset, text_column: str, output_di
         # signal to learn from: it collapsed to predicting one near-constant
         # output regardless of input audio, at both 1e-4 and 5e-4 learning
         # rates (see finetune_*_mms_300m runs prior to this fix).
-        for parameter in model.wav2vec2.feature_extractor.parameters():
-            parameter.requires_grad = False
+        # Use the model API: setting requires_grad=False on the weights alone
+        # leaves the encoder's _requires_grad flag on, which still backprops
+        # through all 7 conv layers over the raw 16 kHz input (~86 s/step on T4s).
+        model.freeze_feature_encoder()
     return model, processor
 
 

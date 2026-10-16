@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -193,7 +194,8 @@ def build(_args) -> None:
 
 def kaggle(*arguments: str, check: bool = True) -> subprocess.CompletedProcess:
     print("$ kaggle", " ".join(arguments), flush=True)
-    return subprocess.run(["kaggle", *arguments], check=check)
+    # UTF-8 output: on Windows the CLI otherwise crashes printing non-ASCII file names.
+    return subprocess.run(["kaggle", *arguments], check=check, env={**os.environ, "PYTHONIOENCODING": "utf-8"})
 
 
 def push_code(args) -> None:
@@ -214,8 +216,6 @@ def push_code(args) -> None:
 
 
 def push_token(_args) -> None:
-    import os
-
     from huggingface_hub import get_token, whoami
     token = os.environ.get("HF_TOKEN") or get_token()
     if not token:
@@ -270,7 +270,7 @@ def collect(args) -> None:
         target.mkdir(parents=True, exist_ok=True)
         if kaggle("kernels", "output", f"{KAGGLE_USER}/{path.name}", "-p", str(target), check=False).returncode:
             continue
-        for metrics in target.rglob("outputs/*/metrics.json"):
+        for metrics in (path for path in target.rglob("metrics.json") if path.parent.parent.name == "outputs"):
             destination = outputs / metrics.parent.name
             shutil.copytree(metrics.parent, destination, dirs_exist_ok=True)
     subprocess.run([sys.executable, "-m", "src.report_results", "--outputs-dir", str(outputs),
