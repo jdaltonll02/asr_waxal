@@ -268,9 +268,10 @@ def collect(args) -> None:
     for path in selected(args.patterns):
         target = RESULTS_DIR / "kernels" / path.name
         target.mkdir(parents=True, exist_ok=True)
+        # The CLI can exit non-zero after downloading everything, so use whatever arrived.
         if kaggle("kernels", "output", f"{KAGGLE_USER}/{path.name}", "-p", str(target), check=False).returncode:
-            continue
-        for metrics in (path for path in target.rglob("metrics.json") if path.parent.parent.name == "outputs"):
+            print(f"warning: download of {path.name} reported an error; using the files that arrived")
+        for metrics in (found for found in target.rglob("metrics.json") if found.parent.parent.name == "outputs"):
             destination = outputs / metrics.parent.name
             shutil.copytree(metrics.parent, destination, dirs_exist_ok=True)
     subprocess.run([sys.executable, "-m", "src.report_results", "--outputs-dir", str(outputs),
