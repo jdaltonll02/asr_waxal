@@ -112,7 +112,7 @@ def main():
     if mirror:
         callbacks.append(HubSyncCallback(mirror))
     if model_config["family"] == "whisper":
-        model, processor = load_whisper(model_config, data_config["language"])
+        model, processor = load_whisper(model_config)
         max_tokens = model.config.max_target_positions
         train_set = drop_overlong_labels(train_set, processor.tokenizer, max_tokens, data_config["text_column"], logger, "train")
         validation_set = drop_overlong_labels(validation_set, processor.tokenizer, max_tokens, data_config["text_column"], logger, "validation")

@@ -67,6 +67,8 @@ def main():
     test = cleaned[test_split]
     family = config["model"]["family"]
     if family == "whisper":
+        # Only runs for languages Whisper supports (supports_language), so force
+        # that language rather than letting detection pick one per utterance.
         model, processor = load_whisper(config["model"], config["data"]["language"])
         model = to_device(model, config)
         predictions, references = predict_whisper(model, processor, test, config)

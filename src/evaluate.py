@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 from src.data.dataset import CTCCollator, WhisperCollator
 from src.data.clean_filter import clean_dataset
 from src.data.load_waxal import load_waxal
+from src.models.whisper_wrapper import configure_decoding
 from src.utils.config import resolve_experiment, write_resolved_config
 from src.utils.logging_setup import setup_logging, write_json
 from src.utils.metrics import compute_metrics
@@ -66,9 +67,7 @@ def load_finetuned(family: str, checkpoint: str):
     if family == "whisper":
         from transformers import WhisperForConditionalGeneration, WhisperProcessor
         processor = WhisperProcessor.from_pretrained(checkpoint)
-        model = WhisperForConditionalGeneration.from_pretrained(checkpoint)
-        model.generation_config.forced_decoder_ids = None
-        model.generation_config.suppress_tokens = []
+        model = configure_decoding(WhisperForConditionalGeneration.from_pretrained(checkpoint))
     elif family == "mms_300m":
         from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
         processor = Wav2Vec2Processor.from_pretrained(checkpoint)
