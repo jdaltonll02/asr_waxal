@@ -47,9 +47,11 @@ Every job is a generated notebook in `kaggle/kernels/<slug>/`, driven by `kaggle
 One-time setup:
 
 1. `pip install kaggle` and put your API token in `~/.kaggle/kaggle.json`.
-2. Create a Hugging Face **write** token and add it in Kaggle as a secret named `HF_TOKEN`.
-   Each fine-tuning job mirrors its checkpoints to a private `waxal-net-finetune_<language>_<model>`
-   model repo. That is what lets a job outlive Kaggle's 12 h session limit.
+2. Create a Hugging Face **write** token, log in with it (`hf auth login --force`), then run
+   `python kaggle/jobs.py push-token`. This checks the token and uploads it as the private Kaggle
+   dataset `waxal-hf-token`, which every job attaches. (Kaggle secrets are dropped from versions
+   started with `kaggle kernels push`.) Each fine-tuning job mirrors its checkpoints to a private
+   `waxal-net-finetune_<language>_<model>` model repo, which lets a job outlive the 12 h session limit.
 3. Upload the code (sub-folders are zipped; the CLI skips them otherwise):
    ```bash
    python kaggle/jobs.py push-code -m "describe the change"
@@ -63,8 +65,8 @@ python kaggle/jobs.py push ft-acholi ft-luganda      # every job whose slug cont
 python kaggle/jobs.py status ft-acholi
 ```
 
-After pushing a job for the first time, open it on Kaggle once and turn on the `HF_TOKEN` secret
-(Add-ons -> Secrets); later versions keep it. Without the secret a job still runs, but it cannot resume.
+Without the token dataset a job still runs, but it cannot resume. If you change training code or
+configs, delete that job's `waxal-net-...` Hub repo first; otherwise the rerun reuses the old model.
 
 A job that hits its training deadline (10.5 h into the session) saves, pushes and stops. Push it again
 and it resumes from the last checkpoint. A job whose training already finished goes straight to evaluation.

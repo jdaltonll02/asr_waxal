@@ -1,6 +1,7 @@
 """Build, push and collect the WAXAL-NET Kaggle jobs.
 
     python kaggle/jobs.py build                 # regenerate kaggle/kernels/*
+    python kaggle/jobs.py push-token            # upload your HF write token as a private dataset
     python kaggle/jobs.py push-code             # upload src/, configs/, ... as the code dataset
     python kaggle/jobs.py push ft-acholi        # start every job whose slug contains a pattern
     python kaggle/jobs.py status [pattern ...]
@@ -21,6 +22,9 @@ from pathlib import Path
 
 KAGGLE_USER = "johndaltongibson"
 CODE_DATASET = "waxal-asr-code"
+# Private dataset holding the HF write token. Kaggle secrets are dropped from
+# versions started with `kaggle kernels push`, so jobs read the token from here.
+TOKEN_DATASET = "waxal-hf-token"
 ROOT = Path(__file__).resolve().parents[1]
 KERNELS_DIR = ROOT / "kaggle" / "kernels"
 RESULTS_DIR = ROOT / "results"
@@ -55,11 +59,11 @@ REPO = find_repo()
 PY = "/tmp/waxal-venv/bin/python"
 os.environ.update(HF_HOME="/tmp/hf_cache", HF_DATASETS_DISABLE_PROGRESS_BARS="1", WANDB_DISABLED="true",
                   PYTHONUNBUFFERED="1", TOKENIZERS_PARALLELISM="false")
-try:
-    from kaggle_secrets import UserSecretsClient
-    os.environ["HF_TOKEN"] = UserSecretsClient().get_secret("HF_TOKEN")
-except Exception as error:
-    print(f"HF_TOKEN secret unavailable ({error}); checkpoints will not survive this session.")
+TOKEN_FILES = sorted(Path("/kaggle/input").glob("**/hf_token.txt"))
+if TOKEN_FILES:
+    os.environ["HF_TOKEN"] = TOKEN_FILES[0].read_text().strip()
+else:
+    print("No hf_token.txt input (waxal-hf-token dataset); checkpoints will not survive this session.")
 
 
 def run(*command, check=True):
@@ -139,7 +143,8 @@ def write_kernel(slug: str, cells: list[tuple[str, str]]) -> None:
     (directory / "notebook.ipynb").write_text(json.dumps(notebook(cells), indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
     metadata = {"id": f"{KAGGLE_USER}/{slug}", "title": slug, "code_file": "notebook.ipynb", "language": "python",
                 "kernel_type": "notebook", "is_private": True, "enable_gpu": True, "enable_internet": True,
-                "machine_shape": "NvidiaTeslaT4", "dataset_sources": [f"{KAGGLE_USER}/{CODE_DATASET}"],
+                "machine_shape": "NvidiaTeslaT4",
+                "dataset_sources": [f"{KAGGLE_USER}/{CODE_DATASET}", f"{KAGGLE_USER}/{TOKEN_DATASET}"],
                 "competition_sources": [], "kernel_sources": [], "model_sources": []}
     (directory / "kernel-metadata.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
 
@@ -156,8 +161,8 @@ def build(_args) -> None:
             intro = (f"# WAXAL-NET fine-tune: {language} × {model}\n\n"
                      f"Trains on WAXAL {language}, evaluates on the WAXAL test split"
                      f"{' and 300 FLEURS test utterances' if fleurs else ''}.\n\n"
-                     "Needs GPU T4 x2, internet, and the `HF_TOKEN` secret (a write token) so checkpoints survive "
-                     "the 12 h session limit. If a run stops at the deadline, run the notebook again to resume.")
+                     "Needs GPU T4 x2, internet, and the private `waxal-hf-token` dataset (an HF write token) so "
+                     "checkpoints survive the 12 h session limit. If a run stops at the deadline, run it again to resume.")
             params = f'LANGUAGE = "{language}"\nMODEL = "{model}"\nFLEURS = {fleurs}\nTRAIN_HOURS = {TRAIN_HOURS}'
             write_kernel(slug_of("ft", language, model), [
                 ("markdown", intro), ("code", params), ("code", SETUP),
@@ -195,6 +200,32 @@ def push_code(args) -> None:
             kaggle("datasets", "version", "-p", staging, "-m", args.message, "--dir-mode", "zip")
         else:
             kaggle("datasets", "create", "-p", staging, "--dir-mode", "zip")
+
+
+def push_token(_args) -> None:
+    import os
+
+    from huggingface_hub import get_token, whoami
+    token = os.environ.get("HF_TOKEN") or get_token()
+    if not token:
+        sys.exit("No HF token: run `hf auth login --force` (write token) or set HF_TOKEN.")
+    try:
+        identity = whoami(token)
+    except Exception as error:
+        sys.exit(f"HF token rejected ({error}). Run `hf auth login --force` with a write token.")
+    role = identity.get("auth", {}).get("accessToken", {}).get("role")
+    if role not in ("write", "fineGrained"):
+        sys.exit(f"Token role is {role!r}; jobs need a write token to create repos and push checkpoints.")
+    with tempfile.TemporaryDirectory() as staging:
+        (Path(staging) / "hf_token.txt").write_text(token, encoding="utf-8")
+        metadata = {"title": TOKEN_DATASET, "id": f"{KAGGLE_USER}/{TOKEN_DATASET}", "licenses": [{"name": "CC0-1.0"}]}
+        (Path(staging) / "dataset-metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+        # Datasets are private unless --public is passed; never pass it here.
+        if kaggle("datasets", "status", f"{KAGGLE_USER}/{TOKEN_DATASET}", check=False).returncode == 0:
+            kaggle("datasets", "version", "-p", staging, "-m", "Rotate token")
+        else:
+            kaggle("datasets", "create", "-p", staging)
+    print(f"Uploaded token for HF user {identity['name']} to private dataset {KAGGLE_USER}/{TOKEN_DATASET}.")
 
 
 def selected(patterns: list[str]) -> list[Path]:
@@ -239,6 +270,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("build").set_defaults(handler=build)
+    commands.add_parser("push-token").set_defaults(handler=push_token)
     code = commands.add_parser("push-code")
     code.add_argument("-m", "--message", default="Update code")
     code.set_defaults(handler=push_code)
