@@ -58,7 +58,8 @@ def find_repo():
 REPO = find_repo()
 PY = "/tmp/waxal-venv/bin/python"
 os.environ.update(HF_HOME="/tmp/hf_cache", HF_DATASETS_DISABLE_PROGRESS_BARS="1", WANDB_DISABLED="true",
-                  PYTHONUNBUFFERED="1", TOKENIZERS_PARALLELISM="false")
+                  PYTHONUNBUFFERED="1", TOKENIZERS_PARALLELISM="false",
+                  PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True")
 TOKEN_FILES = sorted(Path("/kaggle/input").glob("**/hf_token.txt"))
 if TOKEN_FILES:
     os.environ["HF_TOKEN"] = TOKEN_FILES[0].read_text().strip()

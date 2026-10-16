@@ -5,7 +5,7 @@ freeze_encoder: true # freezes only the CNN feature extractor (see src/models/mm
   # left the from-scratch CTC head with no adaptable signal and it collapsed
   # to predicting one near-constant output regardless of input audio.
 effective_batch_size: 32
-per_device_batch_size: 4 # T4 (16 GB): ~20 s average WAXAL clips through the 24-layer encoder.
+per_device_batch_size: 2 # T4 (15 GB): 4 OOMed on Acholi (clips up to ~57 s); accumulation rises to keep 32.
 gradient_checkpointing: true # trades ~30% speed for fitting batch 4 on a 16 GB GPU.
 max_train_duration_sec: null # set (e.g. 40) only if rare very long clips cause OOM.
 # gradient_accumulation_steps is derived in src/train.py so that
