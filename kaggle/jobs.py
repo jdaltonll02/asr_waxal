@@ -60,7 +60,10 @@ REPO = find_repo()
 PY = "/tmp/waxal-venv/bin/python"
 os.environ.update(HF_HOME="/tmp/hf_cache", HF_DATASETS_DISABLE_PROGRESS_BARS="1", WANDB_DISABLED="true",
                   PYTHONUNBUFFERED="1", TOKENIZERS_PARALLELISM="false",
-                  PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True")
+                  PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True",
+                  # One GPU: Trainer's DataParallel over both T4s made MMS-300M steps ~6.5x
+                  # slower (kaggle/bench_mms.py). Accumulation doubles to keep batch 32.
+                  CUDA_VISIBLE_DEVICES="0")
 TOKEN_FILES = sorted(Path("/kaggle/input").glob("**/hf_token.txt"))
 if TOKEN_FILES:
     os.environ["HF_TOKEN"] = TOKEN_FILES[0].read_text().strip()
