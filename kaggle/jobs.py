@@ -5,6 +5,7 @@
     python kaggle/jobs.py push-code             # upload src/, configs/, ... as the code dataset
     python kaggle/jobs.py push ft-acholi        # start every job whose slug contains a pattern
     python kaggle/jobs.py status [pattern ...]
+    python kaggle/jobs.py progress [pattern ...]  # live step/speed/loss from each job's Hub repo
     python kaggle/jobs.py collect               # download job outputs, write results tables
 
 Each fine-tuning job is one (language, model) pair so it fits Kaggle's 12 h
@@ -270,6 +271,23 @@ def status(args) -> None:
         kaggle("kernels", "status", f"{KAGGLE_USER}/{path.name}", check=False)
 
 
+def progress(args) -> None:
+    from huggingface_hub import HfApi, hf_hub_download
+    api = HfApi()
+    owner = api.whoami()["name"]
+    for path in selected(args.patterns):
+        if not path.name.startswith("waxal-ft-"):
+            continue
+        language, model = path.name.removeprefix("waxal-ft-").split("-", 1)
+        repo = f"{owner}/waxal-net-finetune_{language}_{model.replace('-', '_')}"
+        try:
+            state = json.loads(Path(hf_hub_download(repo, "progress.json", force_download=True)).read_text())
+            print(f"{path.name}: step {state['step']} | {state.get('sec_per_step')} s/step | "
+                  f"loss {state.get('loss', state.get('eval_loss'))} | best eval {state.get('best_eval_loss')} | {state['updated']}")
+        except Exception as error:
+            print(f"{path.name}: no progress yet ({type(error).__name__})")
+
+
 def collect(args) -> None:
     outputs = RESULTS_DIR / "outputs"
     for path in selected(args.patterns):
@@ -297,7 +315,7 @@ def main() -> None:
     pusher.add_argument("patterns", nargs="*")
     pusher.add_argument("--all", action="store_true")
     pusher.set_defaults(handler=push)
-    for name, handler in (("status", status), ("collect", collect)):
+    for name, handler in (("status", status), ("progress", progress), ("collect", collect)):
         command = commands.add_parser(name)
         command.add_argument("patterns", nargs="*")
         command.set_defaults(handler=handler)

@@ -15,7 +15,7 @@ from src.data.load_waxal import load_waxal
 from src.models.mms_wrapper import load_mms_300m
 from src.models.whisper_wrapper import load_whisper
 from src.utils.config import resolve_experiment, write_resolved_config
-from src.utils.hub import HubMirror, HubSyncCallback, has_complete_model
+from src.utils.hub import HubMirror, HubSyncCallback, ProgressCallback, has_complete_model
 from src.utils.logging_setup import setup_logging, write_json
 from src.utils.seed import seed_everything
 
@@ -111,6 +111,7 @@ def main():
         callbacks.append(deadline)
     if mirror:
         callbacks.append(HubSyncCallback(mirror))
+    callbacks.append(ProgressCallback(mirror))
     if model_config["family"] == "whisper":
         model, processor = load_whisper(model_config)
         # The decoding KV cache is useless in training, and DataParallel gathers
