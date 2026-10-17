@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import time
 
@@ -57,6 +58,24 @@ def training_arguments(config):
                   fp16=config["fp16"] and torch.cuda.is_available(), report_to=["wandb"] if config.get("use_wandb") else [],
                   remove_unused_columns=False, save_total_limit=2, seed=model["seed"])
     return common
+
+
+def match_saved_batch_size(checkpoint: str, train_batch_size: int, logger) -> None:
+    """Make a resumed run keep the configured batch size.
+
+    Trainer.train() replaces its batch size with trainer_state.json's on resume.
+    A checkpoint written under DataParallel on 2 GPUs (2 x 2 = 4 per micro-batch)
+    and resumed on 1 GPU with doubled accumulation therefore trained at 64, not 32.
+    """
+    path = os.path.join(checkpoint, "trainer_state.json")
+    with open(path, encoding="utf-8") as handle:
+        state = json.load(handle)
+    if state.get("train_batch_size") not in (None, train_batch_size):
+        logger.warning("Checkpoint micro-batch %s != configured %s; using the configured size.",
+                       state["train_batch_size"], train_batch_size)
+        state["train_batch_size"] = train_batch_size
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(state, handle, indent=2)
 
 
 def drop_long_audio(dataset, max_seconds, logger, name):
@@ -136,6 +155,7 @@ def main():
     resume_from = get_last_checkpoint(config["checkpoint_dir"]) if os.path.isdir(config["checkpoint_dir"]) else None
     if resume_from:
         logger.info("Resuming from %s", resume_from)
+        match_saved_batch_size(resume_from, args.train_batch_size, logger)
     trainer.train(resume_from_checkpoint=resume_from)
     if deadline and deadline.triggered:
         logger.warning("Session deadline reached at step %d; rerun this job to resume.", trainer.state.global_step)
