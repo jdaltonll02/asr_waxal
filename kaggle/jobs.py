@@ -189,6 +189,10 @@ def build(_args) -> None:
                 ("code", f'MODEL = "{model}"\nLANGUAGES = {languages!r}'), ("code", SETUP),
                 ("code", f'run("bash", f"{{REPO}}/kaggle/setup_env.sh"{", " + install if install else ""})'),
                 ("code", ZERO_SHOT_RUN)])
+    write_kernel("waxal-bench-mms", [
+        ("markdown", "# MMS-300M step-time benchmark\n\nTimes training steps on synthetic audio under several settings."),
+        ("code", SETUP), ("code", 'run("bash", f"{REPO}/kaggle/setup_env.sh")'),
+        ("code", 'run(PY, f"{REPO}/kaggle/bench_mms.py")')])
     print(f"Wrote {len(list(KERNELS_DIR.iterdir()))} kernels to {KERNELS_DIR.relative_to(ROOT)}")
 
 
