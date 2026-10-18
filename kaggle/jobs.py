@@ -144,6 +144,21 @@ for language in LANGUAGES:
     print(f"{language}: {status}")'''
 
 
+# Whisper models on the Hub to re-score with chunked long audio (Acholi Tiny was
+# trained before checkpoints were mirrored, so it has no Hub copy).
+CHUNK30_RUNS = [("acholi", "whisper_small"), ("luganda", "whisper_small"), ("luganda", "whisper_tiny")]
+CHUNK30_EVAL = '''import shutil
+
+for language, model in RUNS:
+    name = f"finetune_{language}_{model}"
+    local = f"/kaggle/working/models/{name}"
+    run(PY, "-c", "from huggingface_hub import HfApi, snapshot_download; "
+        f"snapshot_download(HfApi().whoami()['name'] + '/waxal-net-{name}', allow_patterns='best_model/*', local_dir='{local}')")
+    run(PY, "-m", "src.evaluate", "--config", f"configs/experiment/{name}.yaml", "--checkpoint", f"{local}/best_model",
+        "--long-audio", "chunk30", "--output-dir", f"/kaggle/working/outputs/{name}_chunk30", check=False)
+shutil.rmtree("/kaggle/working/models", ignore_errors=True)'''
+
+
 def notebook(cells: list[tuple[str, str]]) -> dict:
     return {
         "cells": [{"cell_type": kind, "metadata": {}, "source": source.splitlines(keepends=True),
@@ -198,6 +213,11 @@ def build(_args) -> None:
         ("markdown", "# MMS-300M step-time benchmark\n\nTimes training steps on synthetic audio under several settings."),
         ("code", SETUP), ("code", 'run("bash", f"{REPO}/kaggle/setup_env.sh")'),
         ("code", 'run(PY, f"{REPO}/kaggle/bench_mms.py")')])
+    write_kernel("waxal-eval-chunk30", [
+        ("markdown", "# Whisper long-audio re-evaluation\n\nRe-scores fine-tuned Whisper models from the Hub with "
+                     "clips over 30 s transcribed in 30 s chunks instead of truncated."),
+        ("code", f"RUNS = {CHUNK30_RUNS!r}"), ("code", SETUP), ("code", 'run("bash", f"{REPO}/kaggle/setup_env.sh")'),
+        ("code", CHUNK30_EVAL)])
     print(f"Wrote {len(list(KERNELS_DIR.iterdir()))} kernels to {KERNELS_DIR.relative_to(ROOT)}")
 
 
@@ -346,9 +366,12 @@ def queue(args) -> None:
     """Run jobs two at a time; resume deadline stops; stop retrying failures. Safe to restart."""
     import time
     state = json.loads(QUEUE_STATE.read_text(encoding="utf-8")) if QUEUE_STATE.exists() else {}
-    for path in selected(args.patterns):
-        state.setdefault(path.name, {"status": "pending", "sessions": 0})
-    names = [path.name for path in selected(args.patterns)]
+    # Run in the order the patterns were given, then smallest language first.
+    def priority(path):
+        return (next(index for index, pattern in enumerate(args.patterns) if pattern in path.name), kernel_order(path.name))
+    names = [path.name for path in sorted(selected(args.patterns), key=priority)]
+    for name in names:
+        state.setdefault(name, {"status": "pending", "sessions": 0})
 
     def save():
         QUEUE_STATE.parent.mkdir(parents=True, exist_ok=True)
