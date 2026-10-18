@@ -7,6 +7,7 @@
     python kaggle/jobs.py status [pattern ...]
     python kaggle/jobs.py progress [pattern ...]  # live step/speed/loss from each job's Hub repo
     python kaggle/jobs.py collect               # download job outputs, write results tables
+    python kaggle/jobs.py queue ft-luganda ...  # keep Kaggle's 2 GPU slots busy until all finish
 
 Each fine-tuning job is one (language, model) pair so it fits Kaggle's 12 h
 session; rerunning a job resumes from checkpoints mirrored to the HF Hub.
@@ -303,6 +304,87 @@ def collect(args) -> None:
                     "--output", str(RESULTS_DIR / "waxal_results.md")], cwd=ROOT, check=True)
 
 
+MAX_SESSIONS = 2  # Kaggle: "Maximum batch GPU session count of 2"
+MAX_SESSIONS_PER_JOB = 4
+QUEUE_STATE = RESULTS_DIR / "queue_state.json"
+
+
+def kernel_state(slug: str) -> str:
+    result = subprocess.run(["kaggle", "kernels", "status", f"{KAGGLE_USER}/{slug}"], capture_output=True, text=True,
+                            env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+    text = result.stdout + result.stderr
+    for state in ("CANCEL", "COMPLETE", "ERROR", "RUNNING", "QUEUED"):
+        if state in text:
+            return state
+    return "UNKNOWN"
+
+
+def job_outcome(slug: str) -> str:
+    """'done', 'resume' (stopped at the session deadline) or 'failed', from the job's saved output."""
+    target = RESULTS_DIR / "kernels" / slug
+    shutil.rmtree(target, ignore_errors=True)
+    target.mkdir(parents=True)
+    kaggle("kernels", "output", f"{KAGGLE_USER}/{slug}", "-p", str(target), check=False)
+    if not slug.startswith("waxal-ft-"):
+        return "done" if list(target.rglob("metrics.json")) else "failed"
+    statuses = list(target.rglob("training_status.json"))
+    if statuses and not json.loads(statuses[0].read_text(encoding="utf-8")).get("complete"):
+        return "resume"
+    finetune_metrics = [path for path in target.rglob("metrics.json") if path.parent.name.startswith("finetune_")]
+    return "done" if finetune_metrics else "failed"
+
+
+def push_one(slug: str) -> bool:
+    result = subprocess.run(["kaggle", "kernels", "push", "-p", str(KERNELS_DIR / slug)], capture_output=True, text=True,
+                            env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+    text = (result.stdout + result.stderr).strip()
+    print(f"  push {slug}: {text.splitlines()[-1] if text else result.returncode}", flush=True)
+    return "successfully pushed" in text
+
+
+def queue(args) -> None:
+    """Run jobs two at a time; resume deadline stops; stop retrying failures. Safe to restart."""
+    import time
+    state = json.loads(QUEUE_STATE.read_text(encoding="utf-8")) if QUEUE_STATE.exists() else {}
+    for path in selected(args.patterns):
+        state.setdefault(path.name, {"status": "pending", "sessions": 0})
+    names = [path.name for path in selected(args.patterns)]
+
+    def save():
+        QUEUE_STATE.parent.mkdir(parents=True, exist_ok=True)
+        QUEUE_STATE.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+    while True:
+        for name in names:
+            job = state[name]
+            if job["status"] != "running":
+                continue
+            kernel = kernel_state(name)
+            if kernel in ("RUNNING", "QUEUED", "UNKNOWN"):
+                continue
+            outcome = job_outcome(name) if kernel == "COMPLETE" else "failed"
+            if outcome == "resume" and job["sessions"] >= MAX_SESSIONS_PER_JOB:
+                outcome = "failed"
+            job["status"] = {"done": "done", "resume": "pending", "failed": "failed"}[outcome]
+            print(f"{time.strftime('%H:%M')} {name}: {kernel} -> {outcome} (sessions: {job['sessions']})", flush=True)
+            save()
+        running = sum(state[name]["status"] == "running" for name in names)
+        for name in names:
+            if running >= MAX_SESSIONS:
+                break
+            if state[name]["status"] == "pending" and push_one(name):
+                state[name]["status"] = "running"
+                state[name]["sessions"] += 1
+                running += 1
+                save()
+        open_jobs = [name for name in names if state[name]["status"] in ("pending", "running")]
+        if not open_jobs:
+            break
+        time.sleep(args.poll)
+    summary = {status: [name for name in names if state[name]["status"] == status] for status in ("done", "failed")}
+    print(json.dumps(summary, indent=2))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -315,6 +397,10 @@ def main() -> None:
     pusher.add_argument("patterns", nargs="*")
     pusher.add_argument("--all", action="store_true")
     pusher.set_defaults(handler=push)
+    queuer = commands.add_parser("queue")
+    queuer.add_argument("patterns", nargs="+")
+    queuer.add_argument("--poll", type=int, default=300, help="seconds between status checks")
+    queuer.set_defaults(handler=queue)
     for name, handler in (("status", status), ("progress", progress), ("collect", collect)):
         command = commands.add_parser(name)
         command.add_argument("patterns", nargs="*")
