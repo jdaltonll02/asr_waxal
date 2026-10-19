@@ -329,10 +329,18 @@ MAX_SESSIONS_PER_JOB = 4
 QUEUE_STATE = RESULTS_DIR / "queue_state.json"
 
 
+def cli(*arguments: str, timeout: int) -> str:
+    """Run the Kaggle CLI with a time limit (a hung call once froze the queue for ~14 h)."""
+    try:
+        result = subprocess.run(["kaggle", *arguments], capture_output=True, text=True, timeout=timeout,
+                                env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+        return result.stdout + result.stderr
+    except subprocess.TimeoutExpired:
+        return f"timed out after {timeout}s"
+
+
 def kernel_state(slug: str) -> str:
-    result = subprocess.run(["kaggle", "kernels", "status", f"{KAGGLE_USER}/{slug}"], capture_output=True, text=True,
-                            env={**os.environ, "PYTHONIOENCODING": "utf-8"})
-    text = result.stdout + result.stderr
+    text = cli("kernels", "status", f"{KAGGLE_USER}/{slug}", timeout=120)
     for state in ("CANCEL", "COMPLETE", "ERROR", "RUNNING", "QUEUED"):
         if state in text:
             return state
@@ -344,7 +352,8 @@ def job_outcome(slug: str) -> str:
     target = RESULTS_DIR / "kernels" / slug
     shutil.rmtree(target, ignore_errors=True)
     target.mkdir(parents=True)
-    kaggle("kernels", "output", f"{KAGGLE_USER}/{slug}", "-p", str(target), check=False)
+    if "timed out" in cli("kernels", "output", f"{KAGGLE_USER}/{slug}", "-p", str(target), timeout=1800):
+        return "unknown"
     if not slug.startswith("waxal-ft-"):
         return "done" if list(target.rglob("metrics.json")) else "failed"
     statuses = list(target.rglob("training_status.json"))
@@ -355,10 +364,8 @@ def job_outcome(slug: str) -> str:
 
 
 def push_one(slug: str) -> bool:
-    result = subprocess.run(["kaggle", "kernels", "push", "-p", str(KERNELS_DIR / slug)], capture_output=True, text=True,
-                            env={**os.environ, "PYTHONIOENCODING": "utf-8"})
-    text = (result.stdout + result.stderr).strip()
-    print(f"  push {slug}: {text.splitlines()[-1] if text else result.returncode}", flush=True)
+    text = cli("kernels", "push", "-p", str(KERNELS_DIR / slug), timeout=300).strip()
+    print(f"  push {slug}: {text.splitlines()[-1] if text else 'no output'}", flush=True)
     return "successfully pushed" in text
 
 
@@ -386,6 +393,8 @@ def queue(args) -> None:
             if kernel in ("RUNNING", "QUEUED", "UNKNOWN"):
                 continue
             outcome = job_outcome(name) if kernel == "COMPLETE" else "failed"
+            if outcome == "unknown":  # download timed out; check again next round
+                continue
             if outcome == "resume" and job["sessions"] >= MAX_SESSIONS_PER_JOB:
                 outcome = "failed"
             job["status"] = {"done": "done", "resume": "pending", "failed": "failed"}[outcome]
@@ -395,7 +404,7 @@ def queue(args) -> None:
         for name in names:
             if running >= MAX_SESSIONS:
                 break
-            if state[name]["status"] == "pending" and push_one(name):
+            if state[name]["status"] == "pending" and push_one(name) is True:
                 state[name]["status"] = "running"
                 state[name]["sessions"] += 1
                 running += 1
