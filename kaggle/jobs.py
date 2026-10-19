@@ -366,6 +366,8 @@ def job_outcome(slug: str) -> str:
 def push_one(slug: str) -> bool:
     text = cli("kernels", "push", "-p", str(KERNELS_DIR / slug), timeout=300).strip()
     print(f"  push {slug}: {text.splitlines()[-1] if text else 'no output'}", flush=True)
+    if "quota" in text.lower():
+        return "quota"
     return "successfully pushed" in text
 
 
@@ -401,10 +403,17 @@ def queue(args) -> None:
             print(f"{time.strftime('%H:%M')} {name}: {kernel} -> {outcome} (sessions: {job['sessions']})", flush=True)
             save()
         running = sum(state[name]["status"] == "running" for name in names)
+        quota_hit = False
         for name in names:
             if running >= MAX_SESSIONS:
                 break
-            if state[name]["status"] == "pending" and push_one(name) is True:
+            if state[name]["status"] != "pending":
+                continue
+            pushed = push_one(name)
+            if pushed == "quota":  # weekly GPU quota spent: wait for the reset
+                quota_hit = True
+                break
+            if pushed:
                 state[name]["status"] = "running"
                 state[name]["sessions"] += 1
                 running += 1
@@ -412,7 +421,7 @@ def queue(args) -> None:
         open_jobs = [name for name in names if state[name]["status"] in ("pending", "running")]
         if not open_jobs:
             break
-        time.sleep(args.poll)
+        time.sleep(3600 if quota_hit else args.poll)
     summary = {status: [name for name in names if state[name]["status"] == status] for status in ("done", "failed")}
     print(json.dumps(summary, indent=2))
 
