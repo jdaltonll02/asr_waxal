@@ -7,3 +7,4 @@ seed: 42
 fp16: true
 use_wandb: false
 decoding_strategy: greedy
+language_tag: myx # Masaaba's ISO 639-3 code; WAXAL's 'mas' is Maasai

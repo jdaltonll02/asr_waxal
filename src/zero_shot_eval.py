@@ -73,7 +73,9 @@ def main():
         model = to_device(model, config)
         predictions, references = predict_whisper(model, processor, test, config)
     elif family == "mms_1b":
-        model, processor = load_mms_1b(config["model"], config["data"]["iso_code"])
+        # language_tag overrides the dataset's code where WAXAL's differs from the MMS
+        # adapter's ISO 639-3 code (Masaaba: myx, not mas = Maasai; Soga: xog).
+        model, processor = load_mms_1b(config["model"], config["model"].get("language_tag") or config["data"]["iso_code"])
         model = to_device(model, config)
         predictions, references = predict_ctc(model, processor, test, config)
     elif family == "omnilingual":

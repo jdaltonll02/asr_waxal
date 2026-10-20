@@ -7,3 +7,4 @@ seed: 42
 fp16: true
 use_wandb: false
 decoding_strategy: greedy
+supports_language: false # no adapter in mms-1b-all, -l1107 or -fl102; the paper reports a number anyway

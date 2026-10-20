@@ -7,4 +7,4 @@ seed: 42
 fp16: true
 use_wandb: false
 decoding_strategy: greedy
-language_tag: sog_Latn
+language_tag: xog_Latn # sog is not an ISO 639-3 code
