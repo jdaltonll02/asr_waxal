@@ -421,7 +421,11 @@ def queue(args) -> None:
         open_jobs = [name for name in names if state[name]["status"] in ("pending", "running")]
         if not open_jobs:
             break
-        time.sleep(3600 if quota_hit else args.poll)
+        if quota_hit and not any(state[name]["status"] == "running" for name in names):
+            # Nothing left running and no quota: stop instead of retrying unattended.
+            print(f"{time.strftime('%H:%M')} weekly GPU quota spent; stopping. Rerun this command after the reset.", flush=True)
+            break
+        time.sleep(args.poll)
     summary = {status: [name for name in names if state[name]["status"] == status] for status in ("done", "failed")}
     print(json.dumps(summary, indent=2))
 
