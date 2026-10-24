@@ -35,12 +35,22 @@ class HubMirror:
         # save_total_limit) are deleted in the same commit; uploaded files are kept.
         self.api.upload_folder(repo_id=self.repo_id, folder_path=self.local_dir, commit_message=message,
                                delete_patterns=["checkpoint-*"])
+        self.squash(message)
         logger.info("Pushed %s to hf.co/%s (%s)", self.local_dir, self.repo_id, message)
+
+    def squash(self, message: str) -> None:
+        # Deleted checkpoints stay in git history and count toward the account's
+        # 100 GB private storage; keep only the current files.
+        try:
+            self.api.super_squash_history(repo_id=self.repo_id, commit_message=message)
+        except Exception as error:  # storage hygiene only; never fail training for it
+            logger.warning("History squash failed: %s", error)
 
     def drop_intermediate_checkpoints(self) -> None:
         folders = {path.split("/")[0] for path in self.api.list_repo_files(self.repo_id) if path.startswith("checkpoint-")}
         for folder in sorted(folders):
             self.api.delete_folder(folder, repo_id=self.repo_id, commit_message=f"Remove {folder}")
+        self.squash("best_model only")
 
 
 class HubSyncCallback(TrainerCallback):
