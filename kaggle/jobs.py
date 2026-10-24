@@ -326,6 +326,7 @@ def collect(args) -> None:
 
 MAX_SESSIONS = 2  # Kaggle: "Maximum batch GPU session count of 2"
 MAX_SESSIONS_PER_JOB = 4
+MAX_CONSECUTIVE_FAILURES = 3
 QUEUE_STATE = RESULTS_DIR / "queue_state.json"
 
 
@@ -382,6 +383,8 @@ def queue(args) -> None:
     for name in names:
         state.setdefault(name, {"status": "pending", "sessions": 0})
 
+    consecutive_failures = 0
+
     def save():
         QUEUE_STATE.parent.mkdir(parents=True, exist_ok=True)
         QUEUE_STATE.write_text(json.dumps(state, indent=2), encoding="utf-8")
@@ -402,6 +405,11 @@ def queue(args) -> None:
             job["status"] = {"done": "done", "resume": "pending", "failed": "failed"}[outcome]
             print(f"{time.strftime('%H:%M')} {name}: {kernel} -> {outcome} (sessions: {job['sessions']})", flush=True)
             save()
+            consecutive_failures = consecutive_failures + 1 if outcome == "failed" else 0
+            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                # A shared cause (e.g. a revoked HF token) fails every job in ~90 s each.
+                print(f"{consecutive_failures} failures in a row; stopping so the cause can be fixed.", flush=True)
+                return
         running = sum(state[name]["status"] == "running" for name in names)
         quota_hit = False
         for name in names:
