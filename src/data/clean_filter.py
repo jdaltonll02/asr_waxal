@@ -14,9 +14,14 @@ def _header_duration(audio: dict) -> float:
     try:
         return float(sf.info(source).duration)
     except Exception:
-        # Formats libsndfile cannot probe fall back to a full decode.
+        pass
+    try:  # formats libsndfile cannot probe fall back to a full decode
         decoded = Audio().decode_example(audio)
         return len(decoded["array"]) / float(decoded["sampling_rate"])
+    except Exception:
+        # Corrupt or empty audio (the paper's "remove corrupt files" step, Fig. 1):
+        # duration 0 fails the min-duration filter, so the clip is dropped.
+        return 0.0
 
 
 def add_durations(dataset, config: dict):
@@ -51,6 +56,9 @@ def clean_dataset(dataset_dict, config: dict, logger=None):
     for split_name in dataset_dict:
         with_durations = add_durations(dataset_dict[split_name], config)
         before = split_stats(with_durations)
+        unreadable = sum(duration == 0 for duration in with_durations[DURATION_COLUMN])
+        if unreadable and logger:
+            logger.warning("%s: %d clips are empty or could not be decoded; dropping them", split_name, unreadable)
         cleaned[split_name] = clean_split(with_durations, config)
         after = split_stats(cleaned[split_name])
         stats[split_name] = {"before": before, "after": after}
