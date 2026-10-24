@@ -104,6 +104,10 @@ run(PY, "-m", "src.train", "--config", CONFIG, "--deadline", str(SESSION_START +
 
 FINETUNE_EVALUATE = '''if Path(CHECKPOINT, "config.json").exists():
     run(PY, "-m", "src.evaluate", "--config", CONFIG, "--checkpoint", CHECKPOINT)
+    if MODEL.startswith("whisper"):
+        # Also score clips over 30 s in 30 s chunks; the paper doesn't say which it did.
+        run(PY, "-m", "src.evaluate", "--config", CONFIG, "--checkpoint", CHECKPOINT, "--long-audio", "chunk30",
+            "--output-dir", f"/kaggle/working/outputs/{RUN}_chunk30")
     if FLEURS:
         run(PY, "-m", "src.cross_domain_eval", "--config", f"configs/experiment/cross_domain_{LANGUAGE}_{MODEL}.yaml",
             "--checkpoint", CHECKPOINT)
@@ -112,11 +116,11 @@ else:
 
 FINETUNE_SUMMARY = '''import json, shutil
 
-for stage in ("finetune", "cross_domain"):
-    path = Path(f"/kaggle/working/outputs/{stage}_{LANGUAGE}_{MODEL}/metrics.json")
+for name in (f"finetune_{LANGUAGE}_{MODEL}", f"finetune_{LANGUAGE}_{MODEL}_chunk30", f"cross_domain_{LANGUAGE}_{MODEL}"):
+    path = Path(f"/kaggle/working/outputs/{name}/metrics.json")
     if path.exists():
         metrics = json.loads(path.read_text())
-        print(f"{stage}: WER {metrics['wer_percent']:.1f}% | CER {metrics['cer_percent']:.1f}%")
+        print(f"{name}: WER {metrics['wer_percent']:.1f}% | CER {metrics['cer_percent']:.1f}%")
 
 # Keep the saved notebook output small. With HF_TOKEN every checkpoint and the
 # final model are already on the Hub; without it only best_model is kept.
