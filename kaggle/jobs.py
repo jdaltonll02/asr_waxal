@@ -433,8 +433,9 @@ def queue(args) -> None:
         open_jobs = [name for name in names if state[name]["status"] in ("pending", "running")]
         if not open_jobs:
             break
-        if quota_hit and not any(state[name]["status"] == "running" for name in names):
-            # Nothing left running and no quota: stop instead of retrying unattended.
+        if quota_hit:
+            # No quota: stop instead of retrying unattended. Running jobs keep going on
+            # Kaggle; rerunning this command later picks up their results.
             print(f"{time.strftime('%H:%M')} weekly GPU quota spent; stopping. Rerun this command after the reset.", flush=True)
             break
         time.sleep(args.poll)
