@@ -59,6 +59,7 @@ def main():
     metrics["wer_95_ci"] = wer_confidence_interval(metrics["wer"], len(references))
     metrics["wer_95_ci_percent"] = metrics["wer_95_ci"] * 100
     write_json(config["output_dir"], "metrics.json", metrics)
+    write_json(config["output_dir"], "predictions.json", {"references": references, "predictions": predictions})
     logger.info("FLEURS WER %.2f%% ± %.2f pp | CER %.2f%%", metrics["wer_percent"], metrics["wer_95_ci_percent"], metrics["cer_percent"])
 
 

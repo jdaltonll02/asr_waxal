@@ -3,4 +3,12 @@ slurm/
 logs/
 .claude/
 venv/
-*__pycache__results/
+__pycache__/
+
+# Local agent/editor state
+.agents/
+.vscode/
+
+# Kaggle job downloads and queue state; keep the results table
+results/*
+!results/waxal_results.md

@@ -50,7 +50,7 @@ One-time setup:
 2. Create a Hugging Face **write** token, log in with it (`hf auth login --force`), then run
    `python kaggle/jobs.py push-token`. This checks the token and uploads it as the private Kaggle
    dataset `waxal-hf-token`, which every job attaches. (Kaggle secrets are dropped from versions
-   started with `kaggle kernels push`.) Each fine-tuning job mirrors its checkpoints to a private
+   started with `kaggle kernels push`.) Each fine-tuning job mirrors its checkpoints to a public
    `waxal-net-finetune_<language>_<model>` model repo, which lets a job outlive the 12 h session limit.
 3. Upload the code (sub-folders are zipped; the CLI skips them otherwise):
    ```bash

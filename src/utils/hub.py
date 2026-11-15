@@ -1,4 +1,4 @@
-"""Mirror a run's checkpoint directory to a private Hugging Face model repo.
+"""Mirror a run's checkpoint directory to a public Hugging Face model repo.
 
 Kaggle sessions end after 12 h and /kaggle/working is not carried into the next
 session, so every Trainer save is mirrored to the Hub and pulled back on start.
@@ -22,7 +22,8 @@ class HubMirror:
         self.api = HfApi()
         self.repo_id = repo_id if "/" in repo_id else f"{self.api.whoami()['name']}/{repo_id}"
         self.local_dir = local_dir
-        self.api.create_repo(self.repo_id, private=True, exist_ok=True)
+        # Public: private storage is capped per account, public storage is not.
+        self.api.create_repo(self.repo_id, private=False, exist_ok=True)
 
     def pull(self) -> None:
         if not self.api.list_repo_files(self.repo_id):
@@ -40,7 +41,7 @@ class HubMirror:
 
     def squash(self, message: str) -> None:
         # Deleted checkpoints stay in git history and count toward the account's
-        # 100 GB private storage; keep only the current files.
+        # storage; keep only the current files.
         try:
             self.api.super_squash_history(repo_id=self.repo_id, commit_message=message)
         except Exception as error:  # storage hygiene only; never fail training for it
