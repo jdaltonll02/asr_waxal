@@ -99,10 +99,14 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
     parser.add_argument("--hub-repo", default=os.environ.get("WAXAL_HUB_REPO"),
-                        help="Private HF repo mirroring checkpoints so later sessions can resume")
+                        help="HF repo mirroring checkpoints so later sessions can resume")
     parser.add_argument("--deadline", type=float, default=None, help="Unix time at which to save and stop")
+    parser.add_argument("--per-device-batch-size", type=int, default=None,
+                        help="Override for larger GPUs; accumulation adjusts so the effective batch is unchanged")
     arguments = parser.parse_args()
     config = resolve_experiment(arguments.config)
+    if arguments.per_device_batch_size:
+        config["model"]["per_device_batch_size"] = arguments.per_device_batch_size
     logger = setup_logging(config["output_dir"])
     write_resolved_config(config, config["output_dir"])
     best_model_dir = config["checkpoint_dir"] + "/best_model"

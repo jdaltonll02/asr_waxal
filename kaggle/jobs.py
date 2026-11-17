@@ -8,6 +8,7 @@
     python kaggle/jobs.py progress [pattern ...]  # live step/speed/loss from each job's Hub repo
     python kaggle/jobs.py collect               # download job outputs, write results tables
     python kaggle/jobs.py queue ft-luganda ...  # keep Kaggle's 2 GPU slots busy until all finish
+    python kaggle/jobs.py colab-claim ft-wolaytta-mms  # run it in colab/waxal_colab.ipynb instead
 
 Each fine-tuning job is one (language, model) pair so it fits Kaggle's 12 h
 session; rerunning a job resumes from checkpoints mirrored to the HF Hub.
@@ -24,6 +25,7 @@ import tempfile
 from pathlib import Path
 
 KAGGLE_USER = "johndaltongibson"
+HF_USER = "jdaltonII02"
 CODE_DATASET = "waxal-asr-code"
 # Private dataset holding the HF write token. Kaggle secrets are dropped from
 # versions started with `kaggle kernels push`, so jobs read the token from here.
@@ -163,6 +165,97 @@ for language, model in RUNS:
 shutil.rmtree("/kaggle/working/models", ignore_errors=True)'''
 
 
+COLAB_NOTEBOOK = ROOT / "colab" / "waxal_colab.ipynb"
+# Kaggle's queue starts from the smallest language, so Colab starts from the largest.
+COLAB_DEFAULT_LANGUAGES = LANGUAGES[::-1][:4]
+COLAB_INTRO = '''# WAXAL-NET fine-tuning on Colab
+
+Works through `LANGUAGES` one at a time: train, evaluate, upload the results to the run's Hub repo.
+Checkpoints go to the same `waxal-net-*` Hub repos as the Kaggle jobs, so a run started on either
+platform resumes on the other. Give a language to one platform at a time (`jobs.py colab-claim`).
+
+1. Runtime → Change runtime type → a GPU (L4 or A100 are much faster than T4).
+2. Secrets (key icon, left bar) → add `HF_TOKEN` (a write token) and allow notebook access.
+3. Run all. Keep the tab open: Colab Pro stops a session when its browser tab closes.
+   If the session ends, run all again; training resumes from the last Hub checkpoint.'''
+
+COLAB_SETUP = '''import os, subprocess, time
+from pathlib import Path
+
+SESSION_START = time.time()
+REPO = Path("/content/asr_waxal")
+if REPO.exists():
+    subprocess.run(["git", "-C", str(REPO), "pull", "--ff-only"], check=True)
+else:
+    subprocess.run(["git", "clone", "--depth", "1", "https://github.com/jdaltonll02/asr_waxal.git", str(REPO)], check=True)
+
+from google.colab import userdata
+os.environ["HF_TOKEN"] = userdata.get("HF_TOKEN")
+os.environ.update(HF_HOME="/content/hf_cache", HF_DATASETS_DISABLE_PROGRESS_BARS="1", WANDB_DISABLED="true",
+                  PYTHONUNBUFFERED="1", TOKENIZERS_PARALLELISM="false",
+                  PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True")
+# The experiment configs write under /kaggle/working.
+Path("/kaggle/working").mkdir(parents=True, exist_ok=True)
+PY = "/tmp/waxal-venv/bin/python"
+LOG_DIR = Path("/kaggle/working/logs")
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def run(*command, check=True):
+    """Run a command from the repo root, streaming its output to the notebook and to LOG_DIR."""
+    name = "_".join(Path(str(part)).stem for part in command[1:4])
+    log_path = LOG_DIR / f"{time.strftime('%H%M%S')}_{name}.log"
+    process = subprocess.Popen(list(command), cwd=REPO, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               text=True, bufsize=1)
+    with open(log_path, "w", encoding="utf-8") as log:
+        for line in process.stdout:
+            print(line, end="", flush=True)
+            log.write(line)
+            log.flush()
+    if process.wait() and check:
+        raise RuntimeError(f"{' '.join(map(str, command))} exited with {process.returncode}")
+    return process.returncode
+
+
+run("bash", f"{REPO}/kaggle/setup_env.sh")
+
+# The configs' per-device batch of 2 fits a 15 GB T4 on clips up to ~57 s; bigger
+# GPUs take more per step (accumulation drops so the effective batch stays 32).
+import torch
+memory_gb = torch.cuda.get_device_properties(0).total_memory / 2**30
+BATCH = ["--per-device-batch-size", "8" if memory_gb > 35 else "4"] if memory_gb > 20 else []
+print(f"{torch.cuda.get_device_name(0)}, {memory_gb:.0f} GB: {BATCH or 'config batch size'}")'''
+
+COLAB_LOOP = '''import shutil
+from huggingface_hub import HfApi
+
+api = HfApi()
+for LANGUAGE in LANGUAGES:
+    print(f"===== {{LANGUAGE}} {{MODEL}} =====", flush=True)
+    FLEURS = LANGUAGE in FLEURS_LANGUAGES
+{train}
+{evaluate}
+    if not Path(CHECKPOINT, "config.json").exists():
+        break  # stopped at the deadline; run all again to resume
+    # Colab outputs are lost with the session; keep them next to the model.
+    repo = f"{{api.whoami()['name']}}/waxal-net-{{RUN}}"
+    for output in Path("/kaggle/working/outputs").glob(f"*_{{LANGUAGE}}_{{MODEL}}*"):
+        api.upload_folder(repo_id=repo, folder_path=str(output), path_in_repo=f"outputs/{{output.name}}",
+                          commit_message=f"{{output.name}} results")
+    shutil.rmtree(f"/kaggle/working/checkpoints/{{RUN}}", ignore_errors=True)'''
+
+
+def build_colab() -> None:
+    indent = lambda code: "\n".join("    " + line if line else line for line in code.splitlines())
+    params = (f'LANGUAGES = {COLAB_DEFAULT_LANGUAGES!r}\nMODEL = "mms_300m"\n'
+              f'FLEURS_LANGUAGES = {sorted(FLEURS_LANGUAGES)!r}\n'
+              "TRAIN_HOURS = 22  # stop training before Colab's 24 h session limit")
+    COLAB_NOTEBOOK.parent.mkdir(parents=True, exist_ok=True)
+    cells = [("markdown", COLAB_INTRO), ("code", params), ("code", COLAB_SETUP),
+             ("code", COLAB_LOOP.format(train=indent(FINETUNE_TRAIN.replace("*HUB)", "*HUB, *BATCH)")), evaluate=indent(FINETUNE_EVALUATE)))]
+    COLAB_NOTEBOOK.write_text(json.dumps(notebook(cells), indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
 def notebook(cells: list[tuple[str, str]]) -> dict:
     return {
         "cells": [{"cell_type": kind, "metadata": {}, "source": source.splitlines(keepends=True),
@@ -223,6 +316,8 @@ def build(_args) -> None:
         ("code", f"RUNS = {CHUNK30_RUNS!r}"), ("code", SETUP), ("code", 'run("bash", f"{REPO}/kaggle/setup_env.sh")'),
         ("code", CHUNK30_EVAL)])
     print(f"Wrote {len(list(KERNELS_DIR.iterdir()))} kernels to {KERNELS_DIR.relative_to(ROOT)}")
+    build_colab()
+    print(f"Wrote {COLAB_NOTEBOOK.relative_to(ROOT)}")
 
 
 def kaggle(*arguments: str, check: bool = True) -> subprocess.CompletedProcess:
@@ -315,17 +410,40 @@ def progress(args) -> None:
 
 def collect(args) -> None:
     outputs = RESULTS_DIR / "outputs"
+    claimed = colab_claimed()
     for path in selected(args.patterns):
         target = RESULTS_DIR / "kernels" / path.name
         target.mkdir(parents=True, exist_ok=True)
+        if path.name in claimed:  # Colab uploads its results to the run's Hub repo
+            from huggingface_hub import snapshot_download
+            run = path.name.replace("waxal-ft-", "finetune_").replace("-", "_")
+            snapshot_download(f"{HF_USER}/waxal-net-{run}", allow_patterns="outputs/*", local_dir=target)
         # The CLI can exit non-zero after downloading everything, so use whatever arrived.
-        if kaggle("kernels", "output", f"{KAGGLE_USER}/{path.name}", "-p", str(target), check=False).returncode:
+        elif kaggle("kernels", "output", f"{KAGGLE_USER}/{path.name}", "-p", str(target), check=False).returncode:
             print(f"warning: download of {path.name} reported an error; using the files that arrived")
         for metrics in (found for found in target.rglob("metrics.json") if found.parent.parent.name == "outputs"):
             destination = outputs / metrics.parent.name
             shutil.copytree(metrics.parent, destination, dirs_exist_ok=True)
     subprocess.run([sys.executable, "-m", "src.report_results", "--outputs-dir", str(outputs),
                     "--output", str(RESULTS_DIR / "waxal_results.md")], cwd=ROOT, check=True)
+
+
+def colab_claimed() -> set[str]:
+    state = json.loads(QUEUE_STATE.read_text(encoding="utf-8")) if QUEUE_STATE.exists() else {}
+    return {name for name, job in state.items() if job["status"] == "colab"}
+
+
+def colab_claim(args) -> None:
+    """Hand jobs to Colab: the Kaggle queue skips them and `collect` reads their results from the Hub."""
+    state = json.loads(QUEUE_STATE.read_text(encoding="utf-8")) if QUEUE_STATE.exists() else {}
+    for path in selected(args.patterns):
+        job = state.setdefault(path.name, {"status": "pending", "sessions": 0})
+        if job["status"] in ("done", "running"):
+            print(f"{path.name}: already {job['status']} on Kaggle; not claimed")
+            continue
+        job["status"] = "pending" if args.release else "colab"
+        print(f"{path.name}: {job['status']}")
+    QUEUE_STATE.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
 
 MAX_SESSIONS = 2  # Kaggle: "Maximum batch GPU session count of 2"
@@ -459,6 +577,10 @@ def main() -> None:
     queuer.add_argument("patterns", nargs="+")
     queuer.add_argument("--poll", type=int, default=300, help="seconds between status checks")
     queuer.set_defaults(handler=queue)
+    claimer = commands.add_parser("colab-claim", help="give jobs to the Colab notebook instead of the Kaggle queue")
+    claimer.add_argument("patterns", nargs="+")
+    claimer.add_argument("--release", action="store_true", help="give them back to the Kaggle queue")
+    claimer.set_defaults(handler=colab_claim)
     for name, handler in (("status", status), ("progress", progress), ("collect", collect)):
         command = commands.add_parser(name)
         command.add_argument("patterns", nargs="*")
